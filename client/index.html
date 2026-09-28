@@ -10,17 +10,123 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+
+  <!-- Authentication Modal (Sign-Up / Log-In) -->
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="auth-logo">Voiceline</div>
+        <p class="auth-tagline">A private chat room for your friends</p>
+      </div>
+
+      <!-- Tabs -->
+      <div class="auth-tabs">
+        <button type="button" class="tab-btn active" id="tabLoginBtn">Log In</button>
+        <button type="button" class="tab-btn" id="tabSignupBtn">Sign Up</button>
+      </div>
+
+      <!-- Log In Form -->
+      <form id="loginForm" class="auth-form" autocomplete="on">
+        <div class="form-group">
+          <label for="loginUsername">Username</label>
+          <input type="text" id="loginUsername" placeholder="e.g. russell" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password" />
+        </div>
+        <div class="auth-error" id="loginError"></div>
+        <button type="submit" class="primary-btn" id="loginSubmitBtn">Log In</button>
+      </form>
+
+      <!-- Sign Up Form -->
+      <form id="signupForm" class="auth-form hidden" autocomplete="off">
+        <div class="form-group">
+          <label for="signupDisplayName">Display Name <span class="label-hint">(what friends see)</span></label>
+          <input type="text" id="signupDisplayName" placeholder="e.g. Russell K." required maxlength="32" />
+        </div>
+        <div class="form-group">
+          <label for="signupUsername">Desired Username <span class="label-hint">(unique login name)</span></label>
+          <input type="text" id="signupUsername" placeholder="e.g. russell" required maxlength="20" />
+        </div>
+
+        <!-- Username Suggestion Alert -->
+        <div class="suggestion-box hidden" id="suggestionBox">
+          <span>Username taken! How about </span>
+          <button type="button" id="useSuggestionBtn" class="suggestion-pill"></button>
+        </div>
+
+        <div class="form-group">
+          <label for="signupPassword">Password</label>
+          <input type="password" id="signupPassword" placeholder="••••••••" required minlength="4" />
+        </div>
+
+        <!-- Developer Account Checkbox -->
+        <div class="dev-checkbox-group">
+          <label class="checkbox-container">
+            <input type="checkbox" id="signupIsDev" />
+            <span class="checkmark"></span>
+            Register as Developer
+          </label>
+        </div>
+
+        <!-- Developer Password (only visible when box checked) -->
+        <div class="form-group hidden" id="devPasswordGroup">
+          <label for="signupDevPassword">Developer Master Password <span class="label-hint">(from your .env file)</span></label>
+          <input type="password" id="signupDevPassword" placeholder="Developer secret password" />
+        </div>
+
+        <div class="auth-error" id="signupError"></div>
+        <button type="submit" class="primary-btn" id="signupSubmitBtn">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main App Layout -->
   <div class="app-layout">
     <!-- Top Bar -->
     <header class="chat-header">
-      <div class="channel-info">
-        <div class="channel-hash">#</div>
-        <div class="channel-name">general</div>
-        <div class="channel-desc">Voiceline Stage 1 Room</div>
+      <div class="header-left">
+        <div class="channel-info">
+          <div class="channel-hash">#</div>
+          <div class="channel-name">general</div>
+          <div class="channel-desc">Voiceline Chat</div>
+        </div>
+
+        <!-- Developer Controls Bar (Developer Only) -->
+        <div class="developer-panel hidden" id="developerPanel">
+          <span class="dev-panel-badge">DEVELOPER</span>
+          <button type="button" class="shutdown-btn" id="shutdownServerBtn" title="Stop the server and announce to all users">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.12.96-4.02 2.58-5.41L6.17 5.17A8.932 8.932 0 0 0 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/>
+            </svg>
+            Turn Off Server
+          </button>
+        </div>
       </div>
-      <div class="status-indicator" id="connectionStatus">
-        <span class="status-dot"></span>
-        <span class="status-text">Connecting...</span>
+
+      <div class="header-right">
+        <div class="status-indicator" id="connectionStatus">
+          <span class="status-dot"></span>
+          <span class="status-text">Connecting...</span>
+        </div>
+
+        <!-- Current User Profile Capsule -->
+        <div class="user-capsule" id="userCapsule">
+          <div class="user-avatar" id="currentUserAvatar">U</div>
+          <div class="user-meta">
+            <div class="user-display-row">
+              <span class="user-name" id="currentUserName">Loading...</span>
+              <span class="dev-badge hidden" id="currentUserDevBadge">DEV</span>
+            </div>
+            <span class="user-handle" id="currentUserHandle">@user</span>
+          </div>
+          <button type="button" class="logout-btn" id="logoutBtn" title="Log Out">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -37,10 +143,6 @@
     <!-- Bottom Input Bar -->
     <footer class="chat-footer">
       <form id="chatForm" class="chat-form" autocomplete="off">
-        <div class="user-pill" title="Click to change your nickname">
-          <label for="nicknameInput" class="user-label">Name:</label>
-          <input type="text" id="nicknameInput" maxlength="24" value="Russell" placeholder="Your Name" />
-        </div>
         <div class="input-wrapper">
           <input 
             type="text" 
@@ -58,6 +160,16 @@
         </div>
       </form>
     </footer>
+  </div>
+
+  <!-- Server Shutdown Notification Overlay -->
+  <div class="shutdown-modal-overlay hidden" id="shutdownNoticeOverlay">
+    <div class="shutdown-modal">
+      <div class="shutdown-icon">??</div>
+      <h2>Server Has Been Stopped</h2>
+      <p id="shutdownNoticeMessage">The host turned off the server. All chat history has been safely recorded in SQLite.</p>
+      <div class="shutdown-hint">To restart, run <code>start.bat</code> on the host PC and refresh this page.</div>
+    </div>
   </div>
 
   <script src="app.js"></script>
