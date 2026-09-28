@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voiceline</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Bar -->
+    <header class="chat-header">
+      <div class="channel-info">
+        <div class="channel-hash">#</div>
+        <div class="channel-name">general</div>
+        <div class="channel-desc">Voiceline Stage 1 Room</div>
+      </div>
+      <div class="status-indicator" id="connectionStatus">
+        <span class="status-dot"></span>
+        <span class="status-text">Connecting...</span>
+      </div>
+    </header>
+
+    <!-- Message Stream -->
+    <main class="chat-messages" id="messagesContainer">
+      <div class="welcome-banner">
+        <div class="welcome-hash">#</div>
+        <h2>Welcome to #general!</h2>
+        <p>This is the start of the #general channel. Messages here are saved safely in SQLite.</p>
+      </div>
+      <div id="messagesList"></div>
+    </main>
+
+    <!-- Bottom Input Bar -->
+    <footer class="chat-footer">
+      <form id="chatForm" class="chat-form" autocomplete="off">
+        <div class="user-pill" title="Click to change your nickname">
+          <label for="nicknameInput" class="user-label">Name:</label>
+          <input type="text" id="nicknameInput" maxlength="24" value="Russell" placeholder="Your Name" />
+        </div>
+        <div class="input-wrapper">
+          <input 
+            type="text" 
+            id="messageInput" 
+            placeholder="Message #general... (Press Enter to send)" 
+            maxlength="2000" 
+            autocomplete="off" 
+            required 
+          />
+          <button type="submit" id="sendBtn" title="Send message" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+          </button>
+        </div>
+      </form>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
