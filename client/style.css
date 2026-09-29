@@ -2,6 +2,7 @@
   --bg-primary: #313338;
   --bg-secondary: #2b2d31;
   --bg-tertiary: #1e1f22;
+  --bg-rail: #1e1f22;
   --bg-input: #383a40;
   --text-normal: #dbdee1;
   --text-muted: #949ba4;
@@ -32,12 +33,134 @@ body {
   overflow: hidden;
 }
 
+/* Outer App Container */
+.app-wrapper {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* =======================================================
+   SERVER RAIL (DISCORD STYLE)
+   ======================================================= */
+.server-rail {
+  width: 72px;
+  background-color: var(--bg-rail);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 8px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+.server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  align-items: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: calc(100vh - 120px);
+}
+
+.server-item {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.server-pill {
+  position: absolute;
+  left: 0;
+  width: 4px;
+  height: 0;
+  background-color: #fff;
+  border-radius: 0 4px 4px 0;
+  transition: height 0.15s ease;
+}
+
+.server-item:hover .server-pill {
+  height: 20px;
+}
+
+.server-item.active .server-pill {
+  height: 40px;
+}
+
+.server-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: var(--bg-primary);
+  color: var(--text-normal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  outline: none;
+}
+
+.server-item:hover .server-icon {
+  border-radius: 16px;
+  background-color: var(--accent);
+  color: #fff;
+}
+
+.server-item.active .server-icon {
+  border-radius: 16px;
+  background-color: var(--accent);
+  color: #fff;
+}
+
+.rail-divider {
+  width: 32px;
+  height: 2px;
+  background-color: var(--border);
+  border-radius: 1px;
+  margin: 4px 0;
+}
+
+.add-server-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: var(--bg-primary);
+  color: var(--online);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-server-btn:hover {
+  border-radius: 16px;
+  background-color: var(--online);
+  color: #fff;
+}
+
+/* =======================================================
+   MAIN CHAT LAYOUT
+   ======================================================= */
 .app-layout {
   display: flex;
   flex-direction: column;
-  width: 100%;
+  flex: 1;
   height: 100%;
   background-color: var(--bg-primary);
+  min-width: 0;
 }
 
 /* Header */
@@ -398,9 +521,9 @@ body {
 }
 
 /* =======================================================
-   AUTHENTICATION OVERLAY
+   AUTHENTICATION & MODALS
    ======================================================= */
-.auth-overlay {
+.auth-overlay, .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.75);
@@ -412,7 +535,7 @@ body {
   padding: 16px;
 }
 
-.auth-card {
+.auth-card, .modal-card {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
   width: 100%;
@@ -422,7 +545,7 @@ body {
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
 }
 
-.auth-header {
+.auth-header, .modal-header {
   text-align: center;
   margin-bottom: 20px;
 }
@@ -434,10 +557,17 @@ body {
   letter-spacing: -0.5px;
 }
 
-.auth-tagline {
+.modal-header h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-header);
+  margin-bottom: 6px;
+}
+
+.modal-header p, .auth-tagline {
   font-size: 13px;
   color: var(--text-muted);
-  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .auth-tabs {
@@ -520,6 +650,30 @@ body {
 
 .primary-btn:hover {
   background-color: var(--accent-hover);
+}
+
+.secondary-btn {
+  background-color: transparent;
+  color: var(--text-normal);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  margin-top: 6px;
+}
+
+.secondary-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .auth-error {

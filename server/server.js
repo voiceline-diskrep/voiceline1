@@ -40,7 +40,6 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-// Helper to parse JSON body
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -76,19 +75,17 @@ function getTokenFromReq(req) {
   return null;
 }
 
-// 1. Create HTTP Server & REST API
+// 1. HTTP Server & REST API
 const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = urlObj.pathname;
 
-  // Handle API routes
   if (pathname.startsWith('/api/')) {
     try {
       // POST /api/signup
       if (req.method === 'POST' && pathname === '/api/signup') {
         const { username, displayName, password, isDeveloper, devPassword } = await readJsonBody(req);
 
-        // Check developer credentials if requested
         if (isDeveloper) {
           if (!devPassword || devPassword !== DEV_PASSWORD) {
             return sendJson(res, 403, { 
@@ -147,6 +144,41 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true });
       }
 
+      // GET /api/servers (List all chat rooms)
+      if (req.method === 'GET' && pathname === '/api/servers') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+        const servers = db.getAllServers();
+        return sendJson(res, 200, { servers });
+      }
+
+      // POST /api/servers (Create a new chat room - Developer only)
+      if (req.method === 'POST' && pathname === '/api/servers') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can create new servers.' });
+        }
+
+        const { name } = await readJsonBody(req);
+        try {
+          const newServer = db.createServer({ name, createdBy: user.id });
+          
+          // Announce new server to all active clients
+          broadcastAll({
+            type: 'server_created',
+            server: newServer
+          });
+
+          return sendJson(res, 200, { success: true, server: newServer });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
       // POST /api/server/shutdown (Developer only)
       if (req.method === 'POST' && pathname === '/api/server/shutdown') {
         const token = getTokenFromReq(req);
@@ -158,13 +190,11 @@ const server = http.createServer(async (req, res) => {
         console.log(`[Voiceline] Shutdown initiated by developer @${user.username}`);
         sendJson(res, 200, { success: true, message: 'Server shutdown initiated.' });
 
-        // Broadcast shutdown alert to all connected users
-        broadcast({
+        broadcastAll({
           type: 'system_shutdown',
           message: 'The server is being stopped by the developer. All messages are safely saved.'
         });
 
-        // Shutdown cleanly after short delay
         setTimeout(stopServerGracefully, 1000);
         return;
       }
@@ -204,13 +234,22 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-// 2. WebSocket Server
+// 2. WebSockets & Room Management
 const wss = new WebSocketServer({ server });
 
-function broadcast(payload) {
+function broadcastAll(payload) {
   const messageStr = JSON.stringify(payload);
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) {
+      client.send(messageStr);
+    }
+  }
+}
+
+function broadcastToRoom(serverId, payload) {
+  const messageStr = JSON.stringify(payload);
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client.currentServerId === serverId) {
       client.send(messageStr);
     }
   }
@@ -222,19 +261,21 @@ wss.on('connection', (ws, req) => {
   const user = db.getUserByToken(token);
 
   if (!user) {
-    // Unauthenticated connection
     ws.send(JSON.stringify({ type: 'auth_required', message: 'Please log in to participate in chat.' }));
     ws.close(4001, 'Unauthorized');
     return;
   }
 
   ws.user = user;
-  console.log(`[Voiceline] @${user.username} (${user.displayName}) connected. Dev: ${user.isDeveloper}`);
+  const initialServerId = Number(urlObj.searchParams.get('serverId')) || 1;
+  ws.currentServerId = initialServerId;
 
-  // Send message history
+  console.log(`[Voiceline] @${user.username} joined room #${ws.currentServerId}`);
+
+  // Send message history for the active server
   try {
-    const history = db.getRecentMessages(50);
-    ws.send(JSON.stringify({ type: 'history', data: history }));
+    const history = db.getRecentMessages(ws.currentServerId, 50);
+    ws.send(JSON.stringify({ type: 'history', serverId: ws.currentServerId, data: history }));
   } catch (err) {
     console.error('[Voiceline] Error fetching history:', err);
   }
@@ -243,12 +284,24 @@ wss.on('connection', (ws, req) => {
     try {
       const parsed = JSON.parse(raw.toString());
 
+      // Switch active chat room
+      if (parsed.type === 'join_server') {
+        const targetServerId = Number(parsed.serverId) || 1;
+        ws.currentServerId = targetServerId;
+        const history = db.getRecentMessages(targetServerId, 50);
+        ws.send(JSON.stringify({ type: 'history', serverId: targetServerId, data: history }));
+        return;
+      }
+
+      // New chat message
       if (parsed.type === 'chat') {
         const content = (parsed.content || '').trim();
         if (!content) return;
 
-        // Save message to SQLite
+        const serverId = ws.currentServerId || 1;
+
         const savedMessage = db.saveMessage({
+          serverId: serverId,
           authorId: ws.user.id,
           authorName: ws.user.displayName,
           authorUsername: ws.user.username,
@@ -256,15 +309,12 @@ wss.on('connection', (ws, req) => {
           content: content
         });
 
-        // Broadcast to everyone
-        broadcast({ type: 'chat', data: savedMessage });
+        // Broadcast only to users currently viewing this room
+        broadcastToRoom(serverId, { type: 'chat', serverId: serverId, data: savedMessage });
       } else if (parsed.type === 'server_shutdown') {
-        if (!ws.user.isDeveloper) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Forbidden' }));
-          return;
-        }
+        if (!ws.user.isDeveloper) return;
         console.log(`[Voiceline] Shutdown initiated via WebSocket by @${ws.user.username}`);
-        broadcast({
+        broadcastAll({
           type: 'system_shutdown',
           message: 'The server is being stopped by the developer. All messages are safely saved.'
         });

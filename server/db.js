@@ -24,8 +24,16 @@ db.exec(`
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS servers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE COLLATE NOCASE NOT NULL,
+    created_by INTEGER,
+    created_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER DEFAULT 1,
     author TEXT,
     author_id INTEGER,
     author_name TEXT,
@@ -36,13 +44,25 @@ db.exec(`
   );
 `);
 
-// Migration for existing Stage 1 databases
+// Migrations
+try { db.exec(`ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 1;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_id INTEGER;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_name TEXT;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_username TEXT;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN is_developer INTEGER DEFAULT 0;`); } catch {}
 try { db.exec(`UPDATE messages SET author_name = author WHERE author_name IS NULL AND author IS NOT NULL;`); } catch {}
 try { db.exec(`UPDATE messages SET author_username = 'anon' WHERE author_username IS NULL;`); } catch {}
+try { db.exec(`UPDATE messages SET server_id = 1 WHERE server_id IS NULL;`); } catch {}
+
+// Ensure default "General" server exists
+const getDefaultServerStmt = db.prepare(`SELECT id, name FROM servers WHERE id = 1`);
+if (!getDefaultServerStmt.get()) {
+  const insertDefaultServerStmt = db.prepare(`
+    INSERT INTO servers (id, name, created_by, created_at)
+    VALUES (1, 'General', NULL, ?)
+  `);
+  insertDefaultServerStmt.run(new Date().toISOString());
+}
 
 // Password Security Helpers
 function generateSalt() {
@@ -62,7 +82,7 @@ function verifyPassword(password, salt, storedHash) {
   }
 }
 
-// User Queries
+// User Operations
 const getUserByUsernameStmt = db.prepare(`
   SELECT id, username, display_name, password_hash, password_salt, is_developer, created_at
   FROM users
@@ -74,10 +94,6 @@ function getUserByUsername(username) {
   return getUserByUsernameStmt.get(username.trim()) || null;
 }
 
-/**
- * Generates an available username suggestion when desired name is taken.
- * e.g., 'test' -> 'test_1234'
- */
 function suggestUsername(desiredUsername) {
   const base = (desiredUsername || 'user').trim().replace(/[^a-zA-Z0-9_]/g, '').slice(0, 14) || 'user';
   for (let i = 0; i < 20; i++) {
@@ -106,7 +122,6 @@ function createUser({ username, displayName, password, isDeveloper = false }) {
     throw new Error('Password must be at least 4 characters long.');
   }
 
-  // Check uniqueness
   if (getUserByUsername(cleanUsername)) {
     const suggestion = suggestUsername(cleanUsername);
     const err = new Error(`Username "${cleanUsername}" is already taken.`);
@@ -145,7 +160,7 @@ function authenticateUser(username, password) {
   };
 }
 
-// Session Management
+// Session Operations
 const insertSessionStmt = db.prepare(`
   INSERT INTO sessions (token, user_id, created_at)
   VALUES (?, ?, ?)
@@ -186,22 +201,83 @@ function deleteSession(token) {
   }
 }
 
-// Message Operations
-const insertMessageStmt = db.prepare(`
-  INSERT INTO messages (author, author_id, author_name, author_username, is_developer, content, timestamp)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+// Server (Chat Room) Operations
+const getAllServersStmt = db.prepare(`
+  SELECT id, name, created_by AS createdBy, created_at AS createdAt
+  FROM servers
+  ORDER BY id ASC
 `);
 
-function saveMessage({ authorId, authorName, authorUsername, isDeveloper, content }) {
+function getAllServers() {
+  return getAllServersStmt.all();
+}
+
+const getServerByIdStmt = db.prepare(`
+  SELECT id, name, created_by AS createdBy, created_at AS createdAt
+  FROM servers
+  WHERE id = ?
+`);
+
+function getServerById(id) {
+  if (!id) return null;
+  return getServerByIdStmt.get(Number(id)) || null;
+}
+
+const getServerByNameStmt = db.prepare(`
+  SELECT id, name
+  FROM servers
+  WHERE name = ?
+`);
+
+function getServerByName(name) {
+  if (!name) return null;
+  return getServerByNameStmt.get(name.trim()) || null;
+}
+
+const insertServerStmt = db.prepare(`
+  INSERT INTO servers (name, created_by, created_at)
+  VALUES (?, ?, ?)
+`);
+
+function createServer({ name, createdBy }) {
+  const cleanName = (name || '').trim();
+  if (!cleanName || cleanName.length < 2 || cleanName.length > 32) {
+    throw new Error('Server name must be between 2 and 32 characters long.');
+  }
+
+  if (getServerByName(cleanName)) {
+    throw new Error(`A server named "${cleanName}" already exists.`);
+  }
+
+  const createdAt = new Date().toISOString();
+  const result = insertServerStmt.run(cleanName, createdBy || null, createdAt);
+
+  return {
+    id: Number(result.lastInsertRowid),
+    name: cleanName,
+    createdBy,
+    createdAt
+  };
+}
+
+// Message Operations
+const insertMessageStmt = db.prepare(`
+  INSERT INTO messages (server_id, author, author_id, author_name, author_username, is_developer, content, timestamp)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+function saveMessage({ serverId = 1, authorId, authorName, authorUsername, isDeveloper, content }) {
   const cleanName = (authorName || 'Anonymous').trim().slice(0, 32);
   const cleanUsername = (authorUsername || 'anon').trim().slice(0, 32);
   const cleanContent = (content || '').trim().slice(0, 2000);
   const devFlag = isDeveloper ? 1 : 0;
   const timestamp = new Date().toISOString();
+  const sId = Number(serverId) || 1;
 
-  const result = insertMessageStmt.run(cleanName, authorId || null, cleanName, cleanUsername, devFlag, cleanContent, timestamp);
+  const result = insertMessageStmt.run(sId, cleanName, authorId || null, cleanName, cleanUsername, devFlag, cleanContent, timestamp);
   return {
     id: Number(result.lastInsertRowid),
+    serverId: sId,
     authorId,
     authorName: cleanName,
     authorUsername: cleanUsername,
@@ -211,19 +287,20 @@ function saveMessage({ authorId, authorName, authorUsername, isDeveloper, conten
   };
 }
 
-const getHistoryStmt = db.prepare(`
-  SELECT id, author_id AS authorId, 
+const getHistoryByServerStmt = db.prepare(`
+  SELECT id, server_id AS serverId, author_id AS authorId, 
          COALESCE(author_name, author) AS authorName, 
          COALESCE(author_username, 'anon') AS authorUsername, 
          COALESCE(is_developer, 0) AS isDeveloper, 
          content, timestamp
   FROM messages
+  WHERE server_id = ?
   ORDER BY id DESC
   LIMIT ?
 `);
 
-function getRecentMessages(limit = 50) {
-  const rows = getHistoryStmt.all(limit);
+function getRecentMessages(serverId = 1, limit = 50) {
+  const rows = getHistoryByServerStmt.all(Number(serverId) || 1, limit);
   return rows.reverse().map(r => ({
     ...r,
     isDeveloper: Boolean(r.isDeveloper)
@@ -238,6 +315,10 @@ module.exports = {
   createSession,
   getUserByToken,
   deleteSession,
+  getAllServers,
+  getServerById,
+  getServerByName,
+  createServer,
   saveMessage,
   getRecentMessages
 };

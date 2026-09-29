@@ -17,10 +17,19 @@ const signupError = document.getElementById('signupError');
 const suggestionBox = document.getElementById('suggestionBox');
 const useSuggestionBtn = document.getElementById('useSuggestionBtn');
 
+// DOM Elements - Server Rail & Modal
+const serverList = document.getElementById('serverList');
+const openCreateServerBtn = document.getElementById('openCreateServerBtn');
+const createServerModalOverlay = document.getElementById('createServerModalOverlay');
+const createServerForm = document.getElementById('createServerForm');
+const serverNameInput = document.getElementById('serverNameInput');
+const createServerError = document.getElementById('createServerError');
+const cancelCreateServerBtn = document.getElementById('cancelCreateServerBtn');
+
 // DOM Elements - Header & User Capsule
+const activeChannelName = document.getElementById('activeChannelName');
+const activeChannelDesc = document.getElementById('activeChannelDesc');
 const connectionStatus = document.getElementById('connectionStatus');
-const statusDot = connectionStatus.querySelector('.status-dot');
-const statusText = connectionStatus.querySelector('.status-text');
 const developerPanel = document.getElementById('developerPanel');
 const shutdownServerBtn = document.getElementById('shutdownServerBtn');
 const currentUserAvatar = document.getElementById('currentUserAvatar');
@@ -32,6 +41,8 @@ const logoutBtn = document.getElementById('logoutBtn');
 // DOM Elements - Chat & Modals
 const messagesContainer = document.getElementById('messagesContainer');
 const messagesList = document.getElementById('messagesList');
+const welcomeTitle = document.getElementById('welcomeTitle');
+const welcomeDesc = document.getElementById('welcomeDesc');
 const chatForm = document.getElementById('chatForm');
 const messageInput = document.getElementById('messageInput');
 const shutdownNoticeOverlay = document.getElementById('shutdownNoticeOverlay');
@@ -40,22 +51,24 @@ const shutdownNoticeMessage = document.getElementById('shutdownNoticeMessage');
 // State
 let currentUser = null;
 let token = localStorage.getItem('voiceline_token');
+let servers = [];
+let activeServerId = 1;
 let socket = null;
 let reconnectTimer = null;
 let isIntentionalDisconnect = false;
 
-// Avatar colors palette
-const AVATAR_COLORS = [
+// Avatar & Server colors
+const PALETTE = [
   '#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245',
   '#3ba55d', '#00aff4', '#faa81a', '#9b59b6', '#1abc9c'
 ];
 
-function getAvatarColor(name) {
+function getColor(name) {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) {
+  for (let i = 0; i < (name || '').length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  return PALETTE[Math.abs(hash) % PALETTE.length];
 }
 
 function escapeHtml(str) {
@@ -71,6 +84,15 @@ function formatTime(isoString) {
   } catch {
     return '';
   }
+}
+
+function getServerInitials(name) {
+  if (!name) return 'S';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length > 1) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
 }
 
 // ==========================================
@@ -110,9 +132,6 @@ useSuggestionBtn.addEventListener('click', () => {
   signupUsername.focus();
 });
 
-// ==========================================
-// AUTH SUBMISSIONS
-// ==========================================
 signupForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   signupError.textContent = '';
@@ -184,25 +203,28 @@ function loginSuccess(newToken, user) {
 
   authOverlay.classList.add('hidden');
   applyUserProfile(user);
-  connectWebSocket();
+  loadServers().then(() => {
+    connectWebSocket();
+  });
 }
 
 function applyUserProfile(user) {
   currentUserName.textContent = user.displayName;
   currentUserHandle.textContent = `@${user.username}`;
   currentUserAvatar.textContent = (user.displayName || user.username).charAt(0).toUpperCase();
-  currentUserAvatar.style.backgroundColor = getAvatarColor(user.username);
+  currentUserAvatar.style.backgroundColor = getColor(user.username);
 
   if (user.isDeveloper) {
     currentUserDevBadge.classList.remove('hidden');
     developerPanel.classList.remove('hidden');
+    openCreateServerBtn.classList.remove('hidden');
   } else {
     currentUserDevBadge.classList.add('hidden');
     developerPanel.classList.add('hidden');
+    openCreateServerBtn.classList.add('hidden');
   }
 }
 
-// Log Out
 logoutBtn.addEventListener('click', async () => {
   if (token) {
     try {
@@ -226,7 +248,7 @@ logoutBtn.addEventListener('click', async () => {
   tabLoginBtn.click();
 });
 
-// Check existing session on boot
+// Check session on startup
 async function checkCurrentSession() {
   if (!token) {
     authOverlay.classList.remove('hidden');
@@ -242,6 +264,7 @@ async function checkCurrentSession() {
       currentUser = data.user;
       authOverlay.classList.add('hidden');
       applyUserProfile(currentUser);
+      await loadServers();
       connectWebSocket();
     } else {
       localStorage.removeItem('voiceline_token');
@@ -254,7 +277,139 @@ async function checkCurrentSession() {
 }
 
 // ==========================================
-// DEVELOPER CONTROLS
+// SERVER MANAGEMENT (CHAT ROOMS)
+// ==========================================
+async function loadServers() {
+  if (!token) return;
+
+  try {
+    const res = await fetch('/api/servers', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      servers = data.servers || [];
+      renderServerList();
+      
+      // If active server is not in the list, default to first server
+      if (!servers.some(s => s.id === activeServerId) && servers.length > 0) {
+        selectServer(servers[0].id);
+      } else {
+        updateActiveServerUI();
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load servers:', err);
+  }
+}
+
+function renderServerList() {
+  serverList.innerHTML = '';
+
+  servers.forEach(server => {
+    const item = document.createElement('div');
+    item.className = 'server-item' + (server.id === activeServerId ? ' active' : '');
+    item.setAttribute('data-id', server.id);
+    item.title = server.name;
+
+    const initials = getServerInitials(server.name);
+    item.innerHTML = `
+      <div class="server-pill"></div>
+      <button type="button" class="server-icon" aria-label="${escapeHtml(server.name)}">${escapeHtml(initials)}</button>
+    `;
+
+    item.addEventListener('click', () => {
+      selectServer(server.id);
+    });
+
+    serverList.appendChild(item);
+  });
+}
+
+function selectServer(serverId) {
+  if (activeServerId === serverId) return;
+
+  activeServerId = serverId;
+  updateActiveServerUI();
+
+  // Highlight active in rail
+  document.querySelectorAll('.server-item').forEach(el => {
+    el.classList.toggle('active', Number(el.getAttribute('data-id')) === activeServerId);
+  });
+
+  // Clear messages list while loading new history
+  messagesList.innerHTML = '';
+
+  // Inform WebSocket to switch rooms
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'join_server',
+      serverId: activeServerId
+    }));
+  }
+}
+
+function updateActiveServerUI() {
+  const current = servers.find(s => s.id === activeServerId) || { name: 'General' };
+  activeChannelName.textContent = current.name;
+  activeChannelDesc.textContent = `Server Room #${current.id}`;
+  welcomeTitle.textContent = `Welcome to #${current.name}!`;
+  welcomeDesc.textContent = `This is the start of the ${current.name} server. Messages here are saved safely in SQLite.`;
+  messageInput.placeholder = `Message #${current.name}... (Press Enter to send)`;
+  messageInput.focus();
+}
+
+// Developer Create Server Modal
+openCreateServerBtn.addEventListener('click', () => {
+  createServerModalOverlay.classList.remove('hidden');
+  serverNameInput.value = '';
+  createServerError.textContent = '';
+  serverNameInput.focus();
+});
+
+cancelCreateServerBtn.addEventListener('click', () => {
+  createServerModalOverlay.classList.add('hidden');
+});
+
+createServerModalOverlay.addEventListener('click', (e) => {
+  if (e.target === createServerModalOverlay) {
+    createServerModalOverlay.classList.add('hidden');
+  }
+});
+
+createServerForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  createServerError.textContent = '';
+  const name = serverNameInput.value.trim();
+
+  if (!name) return;
+
+  try {
+    const res = await fetch('/api/servers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ name })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      createServerError.textContent = data.error || 'Failed to create server.';
+      return;
+    }
+
+    createServerModalOverlay.classList.add('hidden');
+    await loadServers();
+    selectServer(data.server.id);
+  } catch (err) {
+    createServerError.textContent = 'Could not contact server.';
+  }
+});
+
+// ==========================================
+// DEVELOPER SHUTDOWN
 // ==========================================
 shutdownServerBtn.addEventListener('click', async () => {
   const confirmShutdown = confirm(
@@ -282,14 +437,15 @@ shutdownServerBtn.addEventListener('click', async () => {
 // ==========================================
 function setStatus(state, text) {
   connectionStatus.className = 'status-indicator ' + state;
-  statusText.textContent = text;
+  const statusText = connectionStatus.querySelector('.status-text');
+  if (statusText) statusText.textContent = text;
 }
 
 function connectWebSocket() {
   if (!token) return;
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/?token=${encodeURIComponent(token)}`;
+  const wsUrl = `${protocol}//${window.location.host}/?token=${encodeURIComponent(token)}&serverId=${activeServerId}`;
 
   setStatus('connecting', 'Connecting...');
   socket = new WebSocket(wsUrl);
@@ -308,13 +464,20 @@ function connectWebSocket() {
       const msg = JSON.parse(event.data);
 
       if (msg.type === 'history') {
-        messagesList.innerHTML = '';
-        if (Array.isArray(msg.data)) {
-          msg.data.forEach(m => appendMessage(m, false));
-          scrollToBottom();
+        if (msg.serverId === activeServerId) {
+          messagesList.innerHTML = '';
+          if (Array.isArray(msg.data)) {
+            msg.data.forEach(m => appendMessage(m, false));
+            scrollToBottom();
+          }
         }
       } else if (msg.type === 'chat') {
-        appendMessage(msg.data, true);
+        if (msg.serverId === activeServerId) {
+          appendMessage(msg.data, true);
+        }
+      } else if (msg.type === 'server_created') {
+        // Another developer created a new room -> refresh server list
+        loadServers();
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -328,7 +491,7 @@ function connectWebSocket() {
     }
   };
 
-  socket.onclose = (e) => {
+  socket.onclose = () => {
     setStatus('disconnected', 'Disconnected');
     if (!isIntentionalDisconnect && token) {
       if (!reconnectTimer) {
@@ -346,7 +509,7 @@ function appendMessage(msg, shouldScroll = true) {
   const authorName = msg.authorName || 'Anonymous';
   const authorUsername = msg.authorUsername ? `@${msg.authorUsername}` : '';
   const initial = authorName.charAt(0).toUpperCase();
-  const color = getAvatarColor(msg.authorUsername || authorName);
+  const color = getColor(msg.authorUsername || authorName);
   const timeFormatted = formatTime(msg.timestamp);
   const devBadgeHtml = msg.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
 
@@ -389,6 +552,7 @@ chatForm.addEventListener('submit', (e) => {
 
   socket.send(JSON.stringify({
     type: 'chat',
+    serverId: activeServerId,
     content: content
   }));
 
