@@ -63,7 +63,10 @@ function readJsonBody(req) {
 }
 
 function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
+  });
   res.end(JSON.stringify(data));
 }
 

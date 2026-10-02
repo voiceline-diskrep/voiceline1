@@ -431,7 +431,7 @@ homeBtn.addEventListener('click', () => {
   switchToFriendsView();
 });
 
-function switchToFriendsView() {
+function switchToFriendsView(tab = currentFriendsTab) {
   currentView = 'friends';
   activeDmFriend = null;
 
@@ -450,7 +450,7 @@ function switchToFriendsView() {
 
   document.querySelectorAll('.dm-item').forEach(el => el.classList.remove('active'));
 
-  switchFriendsTab(currentFriendsTab);
+  switchFriendsTab(tab);
   loadFriends();
 }
 
@@ -568,19 +568,19 @@ function switchFriendsTab(tab) {
   }
 }
 
-friendsNavAllBtn.addEventListener('click', () => switchFriendsTab('all'));
-friendsNavPendingBtn.addEventListener('click', () => switchFriendsTab('pending'));
-friendsNavAddBtn.addEventListener('click', () => switchFriendsTab('add'));
+friendsNavAllBtn.addEventListener('click', () => switchToFriendsView('all'));
+friendsNavPendingBtn.addEventListener('click', () => switchToFriendsView('pending'));
+friendsNavAddBtn.addEventListener('click', () => switchToFriendsView('add'));
 
-fTabAllBtn.addEventListener('click', () => switchFriendsTab('all'));
-fTabPendingBtn.addEventListener('click', () => switchFriendsTab('pending'));
+fTabAllBtn.addEventListener('click', () => { switchFriendsTab('all'); loadFriends(); });
+fTabPendingBtn.addEventListener('click', () => { switchFriendsTab('pending'); loadFriends(); });
 fTabAddBtn.addEventListener('click', () => switchFriendsTab('add'));
 
 async function loadFriends() {
   if (!token) return;
 
   try {
-    const res = await fetch('/api/friends', {
+    const res = await fetch(`/api/friends?_t=${Date.now()}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (res.ok) {
@@ -814,6 +814,9 @@ async function handleRespondFriend(friendshipId, action) {
     });
     if (res.ok) {
       await loadFriends();
+      if (action === 'accept') {
+        switchFriendsTab('all');
+      }
     }
   } catch (err) {
     console.error('Failed to respond to friend request:', err);

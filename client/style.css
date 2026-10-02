@@ -696,7 +696,8 @@ body {
   border-color: var(--accent);
 }
 
-#messageInput {
+#messageInput,
+#dmMessageInput {
   flex: 1;
   background: transparent;
   border: none;
@@ -704,13 +705,16 @@ body {
   color: var(--text-normal);
   font-size: 14px;
   padding: 8px 4px;
+  width: 100%;
 }
 
-#messageInput::placeholder {
+#messageInput::placeholder,
+#dmMessageInput::placeholder {
   color: var(--text-muted);
 }
 
-#sendBtn {
+#sendBtn,
+#dmSendBtn {
   background-color: var(--accent);
   color: #fff;
   border: none;
@@ -722,13 +726,16 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: background-color 0.15s ease, transform 0.05s ease;
+  flex-shrink: 0;
 }
 
-#sendBtn:hover {
+#sendBtn:hover,
+#dmSendBtn:hover {
   background-color: var(--accent-hover);
 }
 
-#sendBtn:active {
+#sendBtn:active,
+#dmSendBtn:active {
   transform: scale(0.95);
 }
 
