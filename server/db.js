@@ -31,9 +31,18 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     server_id INTEGER DEFAULT 1,
+    channel_id INTEGER DEFAULT 1,
     author TEXT,
     author_id INTEGER,
     author_name TEXT,
@@ -46,6 +55,7 @@ db.exec(`
 
 // Migrations
 try { db.exec(`ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 1;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN channel_id INTEGER DEFAULT 1;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_id INTEGER;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_name TEXT;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_username TEXT;`); } catch {}
@@ -53,6 +63,7 @@ try { db.exec(`ALTER TABLE messages ADD COLUMN is_developer INTEGER DEFAULT 0;`)
 try { db.exec(`UPDATE messages SET author_name = author WHERE author_name IS NULL AND author IS NOT NULL;`); } catch {}
 try { db.exec(`UPDATE messages SET author_username = 'anon' WHERE author_username IS NULL;`); } catch {}
 try { db.exec(`UPDATE messages SET server_id = 1 WHERE server_id IS NULL;`); } catch {}
+try { db.exec(`UPDATE messages SET channel_id = 1 WHERE channel_id IS NULL;`); } catch {}
 
 // Ensure default "General" server exists
 const getDefaultServerStmt = db.prepare(`SELECT id, name FROM servers WHERE id = 1`);
@@ -62,6 +73,20 @@ if (!getDefaultServerStmt.get()) {
     VALUES (1, 'General', NULL, ?)
   `);
   insertDefaultServerStmt.run(new Date().toISOString());
+}
+
+// Ensure every server has at least one default channel: 'general'
+const allServers = db.prepare(`SELECT id FROM servers`).all();
+const checkChannelStmt = db.prepare(`SELECT id FROM channels WHERE server_id = ? LIMIT 1`);
+const insertChannelStmt = db.prepare(`
+  INSERT INTO channels (server_id, name, created_at)
+  VALUES (?, ?, ?)
+`);
+
+for (const s of allServers) {
+  if (!checkChannelStmt.get(s.id)) {
+    insertChannelStmt.run(s.id, 'general', new Date().toISOString());
+  }
 }
 
 // Password Security Helpers
@@ -251,33 +276,129 @@ function createServer({ name, createdBy }) {
 
   const createdAt = new Date().toISOString();
   const result = insertServerStmt.run(cleanName, createdBy || null, createdAt);
+  const serverId = Number(result.lastInsertRowid);
+
+  // Automatically create default 'general' channel for new server
+  insertChannelStmt.run(serverId, 'general', createdAt);
 
   return {
-    id: Number(result.lastInsertRowid),
+    id: serverId,
     name: cleanName,
     createdBy,
     createdAt
   };
 }
 
-// Message Operations
-const insertMessageStmt = db.prepare(`
-  INSERT INTO messages (server_id, author, author_id, author_name, author_username, is_developer, content, timestamp)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+// Channel Operations
+const getChannelsByServerStmt = db.prepare(`
+  SELECT id, server_id AS serverId, name, created_at AS createdAt
+  FROM channels
+  WHERE server_id = ?
+  ORDER BY id ASC
 `);
 
-function saveMessage({ serverId = 1, authorId, authorName, authorUsername, isDeveloper, content }) {
+function getChannelsByServerId(serverId) {
+  return getChannelsByServerStmt.all(Number(serverId));
+}
+
+const getChannelByIdStmt = db.prepare(`
+  SELECT id, server_id AS serverId, name, created_at AS createdAt
+  FROM channels
+  WHERE id = ?
+`);
+
+function getChannelById(id) {
+  if (!id) return null;
+  return getChannelByIdStmt.get(Number(id)) || null;
+}
+
+const getChannelByNameStmt = db.prepare(`
+  SELECT id, server_id AS serverId, name
+  FROM channels
+  WHERE server_id = ? AND name = ? COLLATE NOCASE
+`);
+
+function getChannelByName(serverId, name) {
+  if (!serverId || !name) return null;
+  return getChannelByNameStmt.get(Number(serverId), name.trim()) || null;
+}
+
+function cleanChannelName(rawName) {
+  return (rawName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9_-]/g, '')
+    .slice(0, 32);
+}
+
+function createChannel({ serverId, name }) {
+  const clean = cleanChannelName(name);
+  if (!clean || clean.length < 2) {
+    throw new Error('Channel name must be at least 2 characters long.');
+  }
+
+  const sId = Number(serverId);
+  if (!getServerById(sId)) {
+    throw new Error('Server not found.');
+  }
+
+  if (getChannelByName(sId, clean)) {
+    throw new Error(`Channel #${clean} already exists in this server.`);
+  }
+
+  const createdAt = new Date().toISOString();
+  const res = insertChannelStmt.run(sId, clean, createdAt);
+  return {
+    id: Number(res.lastInsertRowid),
+    serverId: sId,
+    name: clean,
+    createdAt
+  };
+}
+
+const deleteChannelStmt = db.prepare(`DELETE FROM channels WHERE id = ? AND server_id = ?`);
+const deleteChannelMessagesStmt = db.prepare(`DELETE FROM messages WHERE channel_id = ?`);
+
+function deleteChannel({ serverId, channelId }) {
+  const sId = Number(serverId);
+  const cId = Number(channelId);
+
+  const channels = getChannelsByServerId(sId);
+  if (channels.length <= 1) {
+    throw new Error('Cannot delete channel. A server must keep at least one channel.');
+  }
+
+  const target = getChannelById(cId);
+  if (!target || target.serverId !== sId) {
+    throw new Error('Channel not found in this server.');
+  }
+
+  deleteChannelMessagesStmt.run(cId);
+  deleteChannelStmt.run(cId, sId);
+  return true;
+}
+
+// Message Operations
+const insertMessageStmt = db.prepare(`
+  INSERT INTO messages (server_id, channel_id, author, author_id, author_name, author_username, is_developer, content, timestamp)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, authorUsername, isDeveloper, content }) {
   const cleanName = (authorName || 'Anonymous').trim().slice(0, 32);
   const cleanUsername = (authorUsername || 'anon').trim().slice(0, 32);
   const cleanContent = (content || '').trim().slice(0, 2000);
   const devFlag = isDeveloper ? 1 : 0;
   const timestamp = new Date().toISOString();
   const sId = Number(serverId) || 1;
+  const cId = Number(channelId) || 1;
 
-  const result = insertMessageStmt.run(sId, cleanName, authorId || null, cleanName, cleanUsername, devFlag, cleanContent, timestamp);
+  const result = insertMessageStmt.run(sId, cId, cleanName, authorId || null, cleanName, cleanUsername, devFlag, cleanContent, timestamp);
   return {
     id: Number(result.lastInsertRowid),
     serverId: sId,
+    channelId: cId,
     authorId,
     authorName: cleanName,
     authorUsername: cleanUsername,
@@ -287,20 +408,20 @@ function saveMessage({ serverId = 1, authorId, authorName, authorUsername, isDev
   };
 }
 
-const getHistoryByServerStmt = db.prepare(`
-  SELECT id, server_id AS serverId, author_id AS authorId, 
+const getHistoryByChannelStmt = db.prepare(`
+  SELECT id, server_id AS serverId, channel_id AS channelId, author_id AS authorId, 
          COALESCE(author_name, author) AS authorName, 
          COALESCE(author_username, 'anon') AS authorUsername, 
          COALESCE(is_developer, 0) AS isDeveloper, 
          content, timestamp
   FROM messages
-  WHERE server_id = ?
+  WHERE channel_id = ?
   ORDER BY id DESC
   LIMIT ?
 `);
 
-function getRecentMessages(serverId = 1, limit = 50) {
-  const rows = getHistoryByServerStmt.all(Number(serverId) || 1, limit);
+function getRecentMessages(channelId = 1, limit = 50) {
+  const rows = getHistoryByChannelStmt.all(Number(channelId) || 1, limit);
   return rows.reverse().map(r => ({
     ...r,
     isDeveloper: Boolean(r.isDeveloper)
@@ -319,6 +440,11 @@ module.exports = {
   getServerById,
   getServerByName,
   createServer,
+  getChannelsByServerId,
+  getChannelById,
+  getChannelByName,
+  createChannel,
+  deleteChannel,
   saveMessage,
   getRecentMessages
 };

@@ -144,7 +144,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true });
       }
 
-      // GET /api/servers (List all chat rooms)
+      // GET /api/servers (List all servers)
       if (req.method === 'GET' && pathname === '/api/servers') {
         const token = getTokenFromReq(req);
         const user = db.getUserByToken(token);
@@ -155,7 +155,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { servers });
       }
 
-      // POST /api/servers (Create a new chat room - Developer only)
+      // POST /api/servers (Create new server - Developer only)
       if (req.method === 'POST' && pathname === '/api/servers') {
         const token = getTokenFromReq(req);
         const user = db.getUserByToken(token);
@@ -166,14 +166,71 @@ const server = http.createServer(async (req, res) => {
         const { name } = await readJsonBody(req);
         try {
           const newServer = db.createServer({ name, createdBy: user.id });
-          
-          // Announce new server to all active clients
           broadcastAll({
             type: 'server_created',
             server: newServer
           });
-
           return sendJson(res, 200, { success: true, server: newServer });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // GET /api/servers/:serverId/channels (List channels in server)
+      const channelsMatch = pathname.match(/^\/api\/servers\/(\d+)\/channels$/);
+      if (req.method === 'GET' && channelsMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+        const serverId = Number(channelsMatch[1]);
+        const channels = db.getChannelsByServerId(serverId);
+        return sendJson(res, 200, { channels });
+      }
+
+      // POST /api/servers/:serverId/channels (Create channel - Developer only)
+      if (req.method === 'POST' && channelsMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can create channels.' });
+        }
+
+        const serverId = Number(channelsMatch[1]);
+        const { name } = await readJsonBody(req);
+        try {
+          const channel = db.createChannel({ serverId, name });
+          broadcastAll({
+            type: 'channel_created',
+            serverId: serverId,
+            channel: channel
+          });
+          return sendJson(res, 200, { success: true, channel });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/servers/:serverId/channels/:channelId (Delete channel - Developer only)
+      const deleteChannelMatch = pathname.match(/^\/api\/servers\/(\d+)\/channels\/(\d+)$/);
+      if (req.method === 'DELETE' && deleteChannelMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can delete channels.' });
+        }
+
+        const serverId = Number(deleteChannelMatch[1]);
+        const channelId = Number(deleteChannelMatch[2]);
+        try {
+          db.deleteChannel({ serverId, channelId });
+          broadcastAll({
+            type: 'channel_deleted',
+            serverId: serverId,
+            channelId: channelId
+          });
+          return sendJson(res, 200, { success: true });
         } catch (err) {
           return sendJson(res, 400, { error: err.message });
         }
@@ -234,7 +291,7 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-// 2. WebSockets & Room Management
+// 2. WebSockets & Channel Broadcasting
 const wss = new WebSocketServer({ server });
 
 function broadcastAll(payload) {
@@ -246,10 +303,10 @@ function broadcastAll(payload) {
   }
 }
 
-function broadcastToRoom(serverId, payload) {
+function broadcastToChannel(channelId, payload) {
   const messageStr = JSON.stringify(payload);
   for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN && client.currentServerId === serverId) {
+    if (client.readyState === WebSocket.OPEN && client.currentChannelId === channelId) {
       client.send(messageStr);
     }
   }
@@ -268,14 +325,22 @@ wss.on('connection', (ws, req) => {
 
   ws.user = user;
   const initialServerId = Number(urlObj.searchParams.get('serverId')) || 1;
+  const initialChannelId = Number(urlObj.searchParams.get('channelId')) || 1;
+
   ws.currentServerId = initialServerId;
+  ws.currentChannelId = initialChannelId;
 
-  console.log(`[Voiceline] @${user.username} joined room #${ws.currentServerId}`);
+  console.log(`[Voiceline] @${user.username} joined server #${ws.currentServerId}, channel #${ws.currentChannelId}`);
 
-  // Send message history for the active server
+  // Send message history for the active channel
   try {
-    const history = db.getRecentMessages(ws.currentServerId, 50);
-    ws.send(JSON.stringify({ type: 'history', serverId: ws.currentServerId, data: history }));
+    const history = db.getRecentMessages(ws.currentChannelId, 50);
+    ws.send(JSON.stringify({
+      type: 'history',
+      serverId: ws.currentServerId,
+      channelId: ws.currentChannelId,
+      data: history
+    }));
   } catch (err) {
     console.error('[Voiceline] Error fetching history:', err);
   }
@@ -284,12 +349,20 @@ wss.on('connection', (ws, req) => {
     try {
       const parsed = JSON.parse(raw.toString());
 
-      // Switch active chat room
-      if (parsed.type === 'join_server') {
+      // Switch active channel
+      if (parsed.type === 'join_channel') {
         const targetServerId = Number(parsed.serverId) || 1;
+        const targetChannelId = Number(parsed.channelId) || 1;
         ws.currentServerId = targetServerId;
-        const history = db.getRecentMessages(targetServerId, 50);
-        ws.send(JSON.stringify({ type: 'history', serverId: targetServerId, data: history }));
+        ws.currentChannelId = targetChannelId;
+
+        const history = db.getRecentMessages(targetChannelId, 50);
+        ws.send(JSON.stringify({
+          type: 'history',
+          serverId: targetServerId,
+          channelId: targetChannelId,
+          data: history
+        }));
         return;
       }
 
@@ -299,9 +372,11 @@ wss.on('connection', (ws, req) => {
         if (!content) return;
 
         const serverId = ws.currentServerId || 1;
+        const channelId = ws.currentChannelId || 1;
 
         const savedMessage = db.saveMessage({
           serverId: serverId,
+          channelId: channelId,
           authorId: ws.user.id,
           authorName: ws.user.displayName,
           authorUsername: ws.user.username,
@@ -309,8 +384,13 @@ wss.on('connection', (ws, req) => {
           content: content
         });
 
-        // Broadcast only to users currently viewing this room
-        broadcastToRoom(serverId, { type: 'chat', serverId: serverId, data: savedMessage });
+        // Broadcast only to users currently viewing this specific channel
+        broadcastToChannel(channelId, {
+          type: 'chat',
+          serverId: serverId,
+          channelId: channelId,
+          data: savedMessage
+        });
       } else if (parsed.type === 'server_shutdown') {
         if (!ws.user.isDeveloper) return;
         console.log(`[Voiceline] Shutdown initiated via WebSocket by @${ws.user.username}`);

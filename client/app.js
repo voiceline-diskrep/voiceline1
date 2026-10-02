@@ -17,7 +17,7 @@ const signupError = document.getElementById('signupError');
 const suggestionBox = document.getElementById('suggestionBox');
 const useSuggestionBtn = document.getElementById('useSuggestionBtn');
 
-// DOM Elements - Server Rail & Modal
+// DOM Elements - Server Rail & Modals
 const serverList = document.getElementById('serverList');
 const openCreateServerBtn = document.getElementById('openCreateServerBtn');
 const createServerModalOverlay = document.getElementById('createServerModalOverlay');
@@ -25,6 +25,16 @@ const createServerForm = document.getElementById('createServerForm');
 const serverNameInput = document.getElementById('serverNameInput');
 const createServerError = document.getElementById('createServerError');
 const cancelCreateServerBtn = document.getElementById('cancelCreateServerBtn');
+
+// DOM Elements - Channel Sidebar & Modals
+const currentServerTitle = document.getElementById('currentServerTitle');
+const channelList = document.getElementById('channelList');
+const openCreateChannelBtn = document.getElementById('openCreateChannelBtn');
+const createChannelModalOverlay = document.getElementById('createChannelModalOverlay');
+const createChannelForm = document.getElementById('createChannelForm');
+const channelNameInput = document.getElementById('channelNameInput');
+const createChannelError = document.getElementById('createChannelError');
+const cancelCreateChannelBtn = document.getElementById('cancelCreateChannelBtn');
 
 // DOM Elements - Header & User Capsule
 const activeChannelName = document.getElementById('activeChannelName');
@@ -38,7 +48,7 @@ const currentUserHandle = document.getElementById('currentUserHandle');
 const currentUserDevBadge = document.getElementById('currentUserDevBadge');
 const logoutBtn = document.getElementById('logoutBtn');
 
-// DOM Elements - Chat & Modals
+// DOM Elements - Chat & Notifications
 const messagesContainer = document.getElementById('messagesContainer');
 const messagesList = document.getElementById('messagesList');
 const welcomeTitle = document.getElementById('welcomeTitle');
@@ -52,12 +62,14 @@ const shutdownNoticeMessage = document.getElementById('shutdownNoticeMessage');
 let currentUser = null;
 let token = localStorage.getItem('voiceline_token');
 let servers = [];
+let channels = [];
 let activeServerId = 1;
+let activeChannelId = 1;
 let socket = null;
 let reconnectTimer = null;
 let isIntentionalDisconnect = false;
 
-// Avatar & Server colors
+// Avatar Palette
 const PALETTE = [
   '#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245',
   '#3ba55d', '#00aff4', '#faa81a', '#9b59b6', '#1abc9c'
@@ -96,7 +108,7 @@ function getServerInitials(name) {
 }
 
 // ==========================================
-// AUTH TABS & CONTROLS
+// AUTH TABS & SUBMISSIONS
 // ==========================================
 tabLoginBtn.addEventListener('click', () => {
   tabLoginBtn.classList.add('active');
@@ -218,10 +230,12 @@ function applyUserProfile(user) {
     currentUserDevBadge.classList.remove('hidden');
     developerPanel.classList.remove('hidden');
     openCreateServerBtn.classList.remove('hidden');
+    openCreateChannelBtn.classList.remove('hidden');
   } else {
     currentUserDevBadge.classList.add('hidden');
     developerPanel.classList.add('hidden');
     openCreateServerBtn.classList.add('hidden');
+    openCreateChannelBtn.classList.add('hidden');
   }
 }
 
@@ -248,7 +262,7 @@ logoutBtn.addEventListener('click', async () => {
   tabLoginBtn.click();
 });
 
-// Check session on startup
+// Check session on boot
 async function checkCurrentSession() {
   if (!token) {
     authOverlay.classList.remove('hidden');
@@ -277,7 +291,7 @@ async function checkCurrentSession() {
 }
 
 // ==========================================
-// SERVER MANAGEMENT (CHAT ROOMS)
+// SERVERS & CHANNELS
 // ==========================================
 async function loadServers() {
   if (!token) return;
@@ -290,12 +304,11 @@ async function loadServers() {
       const data = await res.json();
       servers = data.servers || [];
       renderServerList();
-      
-      // If active server is not in the list, default to first server
+
       if (!servers.some(s => s.id === activeServerId) && servers.length > 0) {
-        selectServer(servers[0].id);
+        await selectServer(servers[0].id);
       } else {
-        updateActiveServerUI();
+        await selectServer(activeServerId);
       }
     }
   } catch (err) {
@@ -326,37 +339,106 @@ function renderServerList() {
   });
 }
 
-function selectServer(serverId) {
-  if (activeServerId === serverId) return;
+async function selectServer(serverId) {
+  activeServerId = Number(serverId);
 
-  activeServerId = serverId;
-  updateActiveServerUI();
-
-  // Highlight active in rail
+  // Update active state in server rail
   document.querySelectorAll('.server-item').forEach(el => {
     el.classList.toggle('active', Number(el.getAttribute('data-id')) === activeServerId);
   });
 
-  // Clear messages list while loading new history
-  messagesList.innerHTML = '';
+  const curServer = servers.find(s => s.id === activeServerId) || { name: 'Voiceline' };
+  currentServerTitle.textContent = curServer.name;
 
-  // Inform WebSocket to switch rooms
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({
-      type: 'join_server',
-      serverId: activeServerId
-    }));
+  await loadChannels(activeServerId);
+}
+
+async function loadChannels(serverId) {
+  if (!token) return;
+
+  try {
+    const res = await fetch(`/api/servers/${serverId}/channels`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      channels = data.channels || [];
+      renderChannelList();
+
+      if (!channels.some(c => c.id === activeChannelId) && channels.length > 0) {
+        selectChannel(channels[0].id);
+      } else if (channels.length > 0) {
+        selectChannel(activeChannelId);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load channels:', err);
   }
 }
 
-function updateActiveServerUI() {
-  const current = servers.find(s => s.id === activeServerId) || { name: 'General' };
-  activeChannelName.textContent = current.name;
-  activeChannelDesc.textContent = `Server Room #${current.id}`;
-  welcomeTitle.textContent = `Welcome to #${current.name}!`;
-  welcomeDesc.textContent = `This is the start of the ${current.name} server. Messages here are saved safely in SQLite.`;
-  messageInput.placeholder = `Message #${current.name}... (Press Enter to send)`;
+function renderChannelList() {
+  channelList.innerHTML = '';
+
+  channels.forEach(ch => {
+    const item = document.createElement('div');
+    item.className = 'channel-item' + (ch.id === activeChannelId ? ' active' : '');
+    item.setAttribute('data-id', ch.id);
+
+    const deleteBtnHtml = (currentUser && currentUser.isDeveloper && channels.length > 1) 
+      ? `<button type="button" class="channel-delete-btn" title="Delete Channel" aria-label="Delete">?</button>` 
+      : '';
+
+    item.innerHTML = `
+      <div class="channel-item-left">
+        <span class="channel-hash-icon">#</span>
+        <span class="channel-item-name">${escapeHtml(ch.name)}</span>
+      </div>
+      ${deleteBtnHtml}
+    `;
+
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.channel-delete-btn')) {
+        e.stopPropagation();
+        handleDeleteChannel(ch.id, ch.name);
+        return;
+      }
+      selectChannel(ch.id);
+    });
+
+    channelList.appendChild(item);
+  });
+}
+
+function selectChannel(channelId) {
+  activeChannelId = Number(channelId);
+
+  // Update active state in channels sidebar
+  document.querySelectorAll('.channel-item').forEach(el => {
+    el.classList.toggle('active', Number(el.getAttribute('data-id')) === activeChannelId);
+  });
+
+  const curServer = servers.find(s => s.id === activeServerId) || { name: 'Server' };
+  const curChannel = channels.find(c => c.id === activeChannelId) || { name: 'general' };
+
+  activeChannelName.textContent = curChannel.name;
+  activeChannelDesc.textContent = `in ${curServer.name}`;
+  welcomeTitle.textContent = `Welcome to #${curChannel.name}!`;
+  welcomeDesc.textContent = `This is the start of the #${curChannel.name} channel in ${curServer.name}. Messages here are saved safely in SQLite.`;
+  messageInput.placeholder = `Message #${curChannel.name}... (Press Enter to send)`;
   messageInput.focus();
+
+  // Clear messages list while waiting for channel history
+  messagesList.innerHTML = '';
+
+  // Inform WebSocket to tune into this channel
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'join_channel',
+      serverId: activeServerId,
+      channelId: activeChannelId
+    }));
+  }
 }
 
 // Developer Create Server Modal
@@ -408,9 +490,79 @@ createServerForm.addEventListener('submit', async (e) => {
   }
 });
 
-// ==========================================
-// DEVELOPER SHUTDOWN
-// ==========================================
+// Developer Create Channel Modal
+openCreateChannelBtn.addEventListener('click', () => {
+  createChannelModalOverlay.classList.remove('hidden');
+  channelNameInput.value = '';
+  createChannelError.textContent = '';
+  channelNameInput.focus();
+});
+
+cancelCreateChannelBtn.addEventListener('click', () => {
+  createChannelModalOverlay.classList.add('hidden');
+});
+
+createChannelModalOverlay.addEventListener('click', (e) => {
+  if (e.target === createChannelModalOverlay) {
+    createChannelModalOverlay.classList.add('hidden');
+  }
+});
+
+createChannelForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  createChannelError.textContent = '';
+  const name = channelNameInput.value.trim();
+
+  if (!name) return;
+
+  try {
+    const res = await fetch(`/api/servers/${activeServerId}/channels`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ name })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      createChannelError.textContent = data.error || 'Failed to create channel.';
+      return;
+    }
+
+    createChannelModalOverlay.classList.add('hidden');
+    await loadChannels(activeServerId);
+    selectChannel(data.channel.id);
+  } catch (err) {
+    createChannelError.textContent = 'Could not contact server.';
+  }
+});
+
+// Developer Delete Channel
+async function handleDeleteChannel(channelId, channelName) {
+  const confirmDelete = confirm(`Are you sure you want to delete #${channelName}?\n\nAll messages in this channel will be permanently removed.`);
+  if (!confirmDelete) return;
+
+  try {
+    const res = await fetch(`/api/servers/${activeServerId}/channels/${channelId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to delete channel.');
+      return;
+    }
+
+    await loadChannels(activeServerId);
+  } catch (err) {
+    alert('Failed to delete channel.');
+  }
+}
+
+// Developer Server Shutdown
 shutdownServerBtn.addEventListener('click', async () => {
   const confirmShutdown = confirm(
     'Are you sure you want to turn off the server?\n\nThis will disconnect all users and save everything to SQLite.'
@@ -445,7 +597,7 @@ function connectWebSocket() {
   if (!token) return;
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/?token=${encodeURIComponent(token)}&serverId=${activeServerId}`;
+  const wsUrl = `${protocol}//${window.location.host}/?token=${encodeURIComponent(token)}&serverId=${activeServerId}&channelId=${activeChannelId}`;
 
   setStatus('connecting', 'Connecting...');
   socket = new WebSocket(wsUrl);
@@ -464,7 +616,7 @@ function connectWebSocket() {
       const msg = JSON.parse(event.data);
 
       if (msg.type === 'history') {
-        if (msg.serverId === activeServerId) {
+        if (msg.channelId === activeChannelId) {
           messagesList.innerHTML = '';
           if (Array.isArray(msg.data)) {
             msg.data.forEach(m => appendMessage(m, false));
@@ -472,12 +624,19 @@ function connectWebSocket() {
           }
         }
       } else if (msg.type === 'chat') {
-        if (msg.serverId === activeServerId) {
+        if (msg.channelId === activeChannelId) {
           appendMessage(msg.data, true);
         }
       } else if (msg.type === 'server_created') {
-        // Another developer created a new room -> refresh server list
         loadServers();
+      } else if (msg.type === 'channel_created') {
+        if (msg.serverId === activeServerId) {
+          loadChannels(activeServerId);
+        }
+      } else if (msg.type === 'channel_deleted') {
+        if (msg.serverId === activeServerId) {
+          loadChannels(activeServerId);
+        }
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -539,7 +698,6 @@ function scrollToBottom() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// Sending chat messages
 chatForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const content = messageInput.value.trim();
@@ -552,7 +710,6 @@ chatForm.addEventListener('submit', (e) => {
 
   socket.send(JSON.stringify({
     type: 'chat',
-    serverId: activeServerId,
     content: content
   }));
 

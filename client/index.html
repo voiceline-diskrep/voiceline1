@@ -87,7 +87,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <h2>Create a Server</h2>
-        <p>Give your new chat room a name (e.g. Gaming, Music, Chill Lounge).</p>
+        <p>Give your new server a name (e.g. Gaming, Music, Chill Lounge).</p>
       </div>
       <form id="createServerForm">
         <div class="form-group">
@@ -103,9 +103,33 @@
     </div>
   </div>
 
-  <!-- App Wrapper: Left Sidebar + Main Chat -->
+  <!-- Create Channel Modal (Developer Only) -->
+  <div class="modal-overlay hidden" id="createChannelModalOverlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Create Text Channel</h2>
+        <p>Channels are where your conversations happen inside this server.</p>
+      </div>
+      <form id="createChannelForm">
+        <div class="form-group">
+          <label for="channelNameInput">CHANNEL NAME</label>
+          <div class="channel-input-wrapper">
+            <span class="channel-prefix">#</span>
+            <input type="text" id="channelNameInput" placeholder="new-channel" required maxlength="32" />
+          </div>
+        </div>
+        <div class="auth-error" id="createChannelError"></div>
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" id="cancelCreateChannelBtn">Cancel</button>
+          <button type="submit" class="primary-btn" id="submitCreateChannelBtn">Create Channel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- App Wrapper: Server Rail + Channel Sidebar + Main Chat -->
   <div class="app-wrapper">
-    <!-- Left Server Rail (Discord Style) -->
+    <!-- 1. Left Server Rail (Discord Style) -->
     <nav class="server-rail" aria-label="Servers">
       <div class="server-list" id="serverList">
         <!-- Server icons injected here dynamically -->
@@ -119,15 +143,36 @@
       </button>
     </nav>
 
-    <!-- Main Layout -->
+    <!-- 2. Channel Sidebar (Inside Selected Server) -->
+    <aside class="channel-sidebar" id="channelSidebar">
+      <div class="server-banner">
+        <h2 class="server-title-text" id="currentServerTitle">Voiceline</h2>
+      </div>
+
+      <div class="channel-section">
+        <div class="channel-section-header">
+          <span class="channel-section-title">TEXT CHANNELS</span>
+          <button type="button" class="add-channel-btn hidden" id="openCreateChannelBtn" title="Create Channel">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="channel-list" id="channelList">
+          <!-- Channels list injected here dynamically -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- 3. Main Chat Layout -->
     <div class="app-layout">
       <!-- Top Bar -->
       <header class="chat-header">
         <div class="header-left">
           <div class="channel-info">
             <div class="channel-hash">#</div>
-            <div class="channel-name" id="activeChannelName">General</div>
-            <div class="channel-desc" id="activeChannelDesc">Voiceline Room</div>
+            <div class="channel-name" id="activeChannelName">general</div>
+            <div class="channel-desc" id="activeChannelDesc">in General</div>
           </div>
 
           <!-- Developer Controls Bar (Developer Only) -->
@@ -171,7 +216,7 @@
       <main class="chat-messages" id="messagesContainer">
         <div class="welcome-banner" id="welcomeBanner">
           <div class="welcome-hash">#</div>
-          <h2 id="welcomeTitle">Welcome to #General!</h2>
+          <h2 id="welcomeTitle">Welcome to #general!</h2>
           <p id="welcomeDesc">This is the start of this channel. Messages here are saved safely in SQLite.</p>
         </div>
         <div id="messagesList"></div>
@@ -184,7 +229,7 @@
             <input 
               type="text" 
               id="messageInput" 
-              placeholder="Message #General... (Press Enter to send)" 
+              placeholder="Message #general... (Press Enter to send)" 
               maxlength="2000" 
               autocomplete="off" 
               required 
