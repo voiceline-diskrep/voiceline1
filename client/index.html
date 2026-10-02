@@ -127,6 +127,70 @@
     </div>
   </div>
 
+  <!-- My Profile Modal -->
+  <div class="modal-overlay hidden" id="myProfileModalOverlay">
+    <div class="modal-card profile-modal-card">
+      <div class="modal-header">
+        <h2>My Profile</h2>
+        <p>Customize your identity across channels and private chats.</p>
+      </div>
+      <form id="myProfileForm">
+        <div class="profile-avatar-edit-section">
+          <div class="profile-avatar-large" id="myProfileAvatarPreview">U</div>
+          <div class="profile-avatar-edit-controls">
+            <input type="file" id="profilePfpInput" accept="image/png, image/jpeg, image/webp, image/gif" class="hidden" />
+            <button type="button" class="secondary-btn btn-sm" id="changeAvatarBtn">Upload Picture</button>
+            <button type="button" class="secondary-btn btn-sm btn-danger-text hidden" id="removeAvatarBtn">Remove</button>
+            <span class="upload-hint">PNG, JPG, WebP or GIF (Max 2MB)</span>
+          </div>
+        </div>
+
+        <div class="form-group mt-15">
+          <label for="profileUsernameDisplay">USERNAME</label>
+          <input type="text" id="profileUsernameDisplay" readonly disabled class="input-disabled" />
+        </div>
+
+        <div class="form-group">
+          <label for="profileDisplayNameInput">DISPLAY NAME</label>
+          <input type="text" id="profileDisplayNameInput" placeholder="Your display name" required maxlength="32" />
+        </div>
+
+        <div class="auth-error" id="myProfileError"></div>
+
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" id="cancelMyProfileBtn">Cancel</button>
+          <button type="submit" class="primary-btn" id="saveMyProfileBtn">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Profile View Modal -->
+  <div class="modal-overlay hidden" id="userProfileModalOverlay">
+    <div class="modal-card user-card-popover">
+      <div class="user-card-header-banner"></div>
+      <div class="user-card-body">
+        <div class="user-card-avatar-wrapper">
+          <div class="user-card-avatar" id="viewUserAvatar">U</div>
+        </div>
+        <div class="user-card-info">
+          <div class="user-card-display-row">
+            <h3 class="user-card-display-name" id="viewUserDisplayName">User Name</h3>
+            <span class="dev-badge hidden" id="viewUserDevBadge">DEV</span>
+          </div>
+          <div class="user-card-handle" id="viewUserHandle">@username</div>
+        </div>
+
+        <div class="user-card-actions" id="viewUserActions">
+          <button type="button" class="primary-btn btn-full" id="viewUserMessageBtn">Direct Message</button>
+        </div>
+        <div class="modal-actions mt-15">
+          <button type="button" class="secondary-btn btn-full" id="closeUserProfileBtn">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- App Wrapper: Server Rail + Sidebar + Main View -->
   <div class="app-wrapper">
     <!-- 1. Left Server Rail (Discord Style) -->

@@ -28,6 +28,12 @@ loadEnv();
 const PORT = process.env.PORT || 3000;
 const DEV_PASSWORD = process.env.DEV_PASSWORD || 'admin123';
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
+const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
+const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
+
+try {
+  fs.mkdirSync(AVATARS_DIR, { recursive: true });
+} catch {}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -36,6 +42,9 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon'
 };
@@ -365,6 +374,110 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true });
       }
 
+      // POST /api/profile (Update display name and avatar)
+      if (req.method === 'POST' && pathname === '/api/profile') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const { displayName, avatarBase64, avatarFilename, removeAvatar } = await readJsonBody(req);
+        const cleanDisplay = (displayName || '').trim();
+        if (!cleanDisplay || cleanDisplay.length > 32) {
+          return sendJson(res, 400, { error: 'Display name must be between 1 and 32 characters.' });
+        }
+
+        let newAvatarUrl = user.avatarUrl || null;
+
+        if (removeAvatar) {
+          if (user.avatarUrl && user.avatarUrl.startsWith('/uploads/avatars/')) {
+            const oldFile = path.join(UPLOADS_DIR, user.avatarUrl.replace(/^\/uploads\//, ''));
+            try { if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile); } catch {}
+          }
+          newAvatarUrl = null;
+        } else if (avatarBase64) {
+          const matches = avatarBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          const mimeType = matches ? matches[1].toLowerCase() : '';
+          const rawData = matches ? matches[2] : avatarBase64;
+
+          const extFromName = (avatarFilename || '').split('.').pop().toLowerCase();
+          let ext = 'png';
+          if (mimeType.includes('jpeg') || mimeType.includes('jpg') || extFromName === 'jpg' || extFromName === 'jpeg') {
+            ext = 'jpg';
+          } else if (mimeType.includes('webp') || extFromName === 'webp') {
+            ext = 'webp';
+          } else if (mimeType.includes('gif') || extFromName === 'gif') {
+            ext = 'gif';
+          } else if (mimeType.includes('png') || extFromName === 'png') {
+            ext = 'png';
+          } else {
+            return sendJson(res, 400, { error: 'Invalid image format. Supported formats: PNG, JPEG, WebP, GIF.' });
+          }
+
+          const buffer = Buffer.from(rawData, 'base64');
+          if (buffer.length > 2 * 1024 * 1024) {
+            return sendJson(res, 400, { error: 'Image file too large. Maximum size is 2 MB.' });
+          }
+
+          if (user.avatarUrl && user.avatarUrl.startsWith('/uploads/avatars/')) {
+            const oldFile = path.join(UPLOADS_DIR, user.avatarUrl.replace(/^\/uploads\//, ''));
+            try { if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile); } catch {}
+          }
+
+          const newFilename = `avatar_${user.id}_${Date.now()}.${ext}`;
+          const newFilePath = path.join(AVATARS_DIR, newFilename);
+          fs.writeFileSync(newFilePath, buffer);
+          newAvatarUrl = `/uploads/avatars/${newFilename}`;
+        }
+
+        const updatedUser = db.updateUserProfile({
+          userId: user.id,
+          displayName: cleanDisplay,
+          avatarUrl: newAvatarUrl
+        });
+
+        broadcastAll({
+          type: 'profile_updated',
+          user: {
+            id: updatedUser.id,
+            username: updatedUser.username,
+            displayName: updatedUser.displayName,
+            avatarUrl: updatedUser.avatarUrl,
+            isDeveloper: updatedUser.isDeveloper
+          }
+        });
+
+        return sendJson(res, 200, { success: true, user: updatedUser });
+      }
+
+      // GET /api/users/:userId (Public profile info)
+      const userProfileMatch = pathname.match(/^\/api\/users\/(\d+)$/);
+      if (req.method === 'GET' && userProfileMatch) {
+        const token = getTokenFromReq(req);
+        const authUser = db.getUserByToken(token);
+        if (!authUser) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const targetId = Number(userProfileMatch[1]);
+        const targetUser = db.getUserById(targetId);
+        if (!targetUser) {
+          return sendJson(res, 404, { error: 'User not found' });
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          user: {
+            id: targetUser.id,
+            username: targetUser.username,
+            displayName: targetUser.displayName,
+            avatarUrl: targetUser.avatarUrl,
+            isDeveloper: targetUser.isDeveloper
+          }
+        });
+      }
+
       // POST /api/server/shutdown (Developer only)
       if (req.method === 'POST' && pathname === '/api/server/shutdown') {
         const token = getTokenFromReq(req);
@@ -390,6 +503,35 @@ const server = http.createServer(async (req, res) => {
       console.error('[Voiceline API Error]', apiErr);
       return sendJson(res, 500, { error: apiErr.message || 'Server error' });
     }
+  }
+
+  // Static Uploads Serving
+  if (pathname.startsWith('/uploads/')) {
+    const relPath = path.normalize(pathname.replace(/^\/uploads\//, ''));
+    const fullPath = path.join(UPLOADS_DIR, relPath);
+
+    if (!fullPath.startsWith(UPLOADS_DIR)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Access denied');
+      return;
+    }
+
+    fs.stat(fullPath, (err, stats) => {
+      if (err || !stats.isFile()) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('File not found');
+        return;
+      }
+
+      const ext = path.extname(fullPath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=86400'
+      });
+      fs.createReadStream(fullPath).pipe(res);
+    });
+    return;
   }
 
   // Static File Serving

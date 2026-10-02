@@ -115,6 +115,26 @@ const messageInput = document.getElementById('messageInput');
 const shutdownNoticeOverlay = document.getElementById('shutdownNoticeOverlay');
 const shutdownNoticeMessage = document.getElementById('shutdownNoticeMessage');
 
+// DOM Elements - Profile Modals
+const myProfileModalOverlay = document.getElementById('myProfileModalOverlay');
+const myProfileForm = document.getElementById('myProfileForm');
+const myProfileAvatarPreview = document.getElementById('myProfileAvatarPreview');
+const profilePfpInput = document.getElementById('profilePfpInput');
+const changeAvatarBtn = document.getElementById('changeAvatarBtn');
+const removeAvatarBtn = document.getElementById('removeAvatarBtn');
+const profileUsernameDisplay = document.getElementById('profileUsernameDisplay');
+const profileDisplayNameInput = document.getElementById('profileDisplayNameInput');
+const myProfileError = document.getElementById('myProfileError');
+const cancelMyProfileBtn = document.getElementById('cancelMyProfileBtn');
+
+const userProfileModalOverlay = document.getElementById('userProfileModalOverlay');
+const viewUserAvatar = document.getElementById('viewUserAvatar');
+const viewUserDisplayName = document.getElementById('viewUserDisplayName');
+const viewUserDevBadge = document.getElementById('viewUserDevBadge');
+const viewUserHandle = document.getElementById('viewUserHandle');
+const viewUserMessageBtn = document.getElementById('viewUserMessageBtn');
+const closeUserProfileBtn = document.getElementById('closeUserProfileBtn');
+
 // State
 let currentUser = null;
 let token = localStorage.getItem('voiceline_token');
@@ -126,6 +146,10 @@ let currentView = 'server'; // 'server' or 'friends'
 let currentFriendsTab = 'all'; // 'all', 'pending', 'add'
 let friendsData = { friends: [], pendingIncoming: [], pendingOutgoing: [] };
 let activeDmFriend = null;
+
+let pendingAvatarBase64 = null;
+let pendingRemoveAvatar = false;
+let viewedUserProfile = null;
 
 let socket = null;
 let reconnectTimer = null;
@@ -143,6 +167,32 @@ function getColor(name) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
   return PALETTE[Math.abs(hash) % PALETTE.length];
+}
+
+function renderAvatarInto(element, user) {
+  if (!element || !user) return;
+  element.innerHTML = '';
+  if (user.avatarUrl) {
+    element.style.backgroundColor = 'transparent';
+    const img = document.createElement('img');
+    img.src = user.avatarUrl;
+    img.alt = user.displayName || user.username || 'Avatar';
+    img.className = 'avatar-img';
+    element.appendChild(img);
+  } else {
+    const initial = (user.displayName || user.username || '?').charAt(0).toUpperCase();
+    element.style.backgroundColor = getColor(user.username || user.displayName || '');
+    element.textContent = initial;
+  }
+}
+
+function createAvatarHtml({ avatarUrl, displayName, username, className = 'user-avatar' }) {
+  if (avatarUrl) {
+    return `<div class="${className}" style="background-color: transparent;"><img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="${escapeHtml(displayName || username || '')}" /></div>`;
+  }
+  const initial = (displayName || username || '?').charAt(0).toUpperCase();
+  const color = getColor(username || displayName || '');
+  return `<div class="${className}" style="background-color: ${color};">${escapeHtml(initial)}</div>`;
 }
 
 function escapeHtml(str) {
@@ -329,26 +379,21 @@ function showToast({ icon = '👋', title, body, actionText, onAction, duration 
 function applyUserProfile(user) {
   const dName = user.displayName;
   const handle = `@${user.username}`;
-  const initial = (user.displayName || user.username).charAt(0).toUpperCase();
-  const avatarColor = getColor(user.username);
 
   currentUserName.textContent = dName;
   currentUserHandle.textContent = handle;
-  currentUserAvatar.textContent = initial;
-  currentUserAvatar.style.backgroundColor = avatarColor;
+  renderAvatarInto(currentUserAvatar, user);
 
   if (currentUserName2) {
     currentUserName2.textContent = dName;
     currentUserHandle2.textContent = handle;
-    currentUserAvatar2.textContent = initial;
-    currentUserAvatar2.style.backgroundColor = avatarColor;
+    renderAvatarInto(currentUserAvatar2, user);
   }
 
   if (currentUserName3) {
     currentUserName3.textContent = dName;
     currentUserHandle3.textContent = handle;
-    currentUserAvatar3.textContent = initial;
-    currentUserAvatar3.style.backgroundColor = avatarColor;
+    renderAvatarInto(currentUserAvatar3, user);
   }
 
   if (user.isDeveloper) {
@@ -394,6 +439,198 @@ function handleLogout() {
 logoutBtn.addEventListener('click', handleLogout);
 if (logoutBtn2) logoutBtn2.addEventListener('click', handleLogout);
 if (logoutBtn3) logoutBtn3.addEventListener('click', handleLogout);
+
+// Open My Profile modal when clicking user capsule
+document.querySelectorAll('.user-capsule').forEach(capsule => {
+  capsule.addEventListener('click', (e) => {
+    if (e.target.closest('.logout-btn')) return;
+    openMyProfileModal();
+  });
+});
+
+function openMyProfileModal() {
+  if (!currentUser) return;
+  pendingAvatarBase64 = null;
+  pendingRemoveAvatar = false;
+  if (profilePfpInput) profilePfpInput.value = '';
+  myProfileError.textContent = '';
+
+  profileUsernameDisplay.value = currentUser.username;
+  profileDisplayNameInput.value = currentUser.displayName || currentUser.username;
+
+  renderAvatarInto(myProfileAvatarPreview, currentUser);
+
+  if (currentUser.avatarUrl) {
+    removeAvatarBtn.classList.remove('hidden');
+  } else {
+    removeAvatarBtn.classList.add('hidden');
+  }
+
+  myProfileModalOverlay.classList.remove('hidden');
+  profileDisplayNameInput.focus();
+}
+
+cancelMyProfileBtn.addEventListener('click', () => {
+  myProfileModalOverlay.classList.add('hidden');
+});
+
+myProfileModalOverlay.addEventListener('click', (e) => {
+  if (e.target === myProfileModalOverlay) {
+    myProfileModalOverlay.classList.add('hidden');
+  }
+});
+
+changeAvatarBtn.addEventListener('click', () => {
+  profilePfpInput.click();
+});
+
+profilePfpInput.addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+
+  if (file.size > 2 * 1024 * 1024) {
+    myProfileError.textContent = 'Image file too large. Maximum size is 2MB.';
+    profilePfpInput.value = '';
+    return;
+  }
+
+  const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+  if (!allowed.includes(file.type)) {
+    myProfileError.textContent = 'Unsupported image format. Allowed: PNG, JPG, WebP, GIF.';
+    profilePfpInput.value = '';
+    return;
+  }
+
+  myProfileError.textContent = '';
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    pendingAvatarBase64 = event.target.result;
+    pendingRemoveAvatar = false;
+    renderAvatarInto(myProfileAvatarPreview, {
+      avatarUrl: pendingAvatarBase64,
+      displayName: profileDisplayNameInput.value || currentUser.displayName,
+      username: currentUser.username
+    });
+    removeAvatarBtn.classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+});
+
+removeAvatarBtn.addEventListener('click', () => {
+  pendingAvatarBase64 = null;
+  pendingRemoveAvatar = true;
+  profilePfpInput.value = '';
+  removeAvatarBtn.classList.add('hidden');
+  renderAvatarInto(myProfileAvatarPreview, {
+    avatarUrl: null,
+    displayName: profileDisplayNameInput.value || currentUser.displayName,
+    username: currentUser.username
+  });
+});
+
+myProfileForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  myProfileError.textContent = '';
+
+  const newDisplayName = profileDisplayNameInput.value.trim();
+  if (!newDisplayName) {
+    myProfileError.textContent = 'Display name cannot be empty.';
+    return;
+  }
+
+  const payload = {
+    displayName: newDisplayName
+  };
+
+  if (pendingRemoveAvatar) {
+    payload.removeAvatar = true;
+  } else if (pendingAvatarBase64) {
+    payload.avatarBase64 = pendingAvatarBase64;
+  }
+
+  try {
+    const res = await fetch('/api/profile', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      myProfileError.textContent = data.error || 'Failed to update profile.';
+      return;
+    }
+
+    currentUser = data.user;
+    applyUserProfile(currentUser);
+    myProfileModalOverlay.classList.add('hidden');
+
+    await loadFriends();
+  } catch (err) {
+    myProfileError.textContent = 'Could not contact server.';
+  }
+});
+
+// View User Profile Modal
+async function openUserProfile(userId, fallbackInfo = null) {
+  if (!userId) return;
+
+  if (currentUser && Number(userId) === currentUser.id) {
+    openMyProfileModal();
+    return;
+  }
+
+  let user = fallbackInfo;
+  try {
+    const res = await fetch(`/api/users/${userId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.user) user = data.user;
+    }
+  } catch (err) {
+    console.error('Failed to fetch user profile:', err);
+  }
+
+  if (!user) return;
+  viewedUserProfile = user;
+
+  renderAvatarInto(viewUserAvatar, user);
+  viewUserDisplayName.textContent = user.displayName || user.username;
+  viewUserHandle.textContent = `@${user.username}`;
+
+  if (user.isDeveloper) {
+    viewUserDevBadge.classList.remove('hidden');
+  } else {
+    viewUserDevBadge.classList.add('hidden');
+  }
+
+  userProfileModalOverlay.classList.remove('hidden');
+}
+
+closeUserProfileBtn.addEventListener('click', () => {
+  userProfileModalOverlay.classList.add('hidden');
+  viewedUserProfile = null;
+});
+
+userProfileModalOverlay.addEventListener('click', (e) => {
+  if (e.target === userProfileModalOverlay) {
+    userProfileModalOverlay.classList.add('hidden');
+    viewedUserProfile = null;
+  }
+});
+
+viewUserMessageBtn.addEventListener('click', () => {
+  if (!viewedUserProfile) return;
+  const target = viewedUserProfile;
+  userProfileModalOverlay.classList.add('hidden');
+  viewedUserProfile = null;
+  switchToDmView(target);
+});
 
 // Check session on boot
 async function checkCurrentSession() {
@@ -493,7 +730,13 @@ function switchToDmView(friend) {
 
   // Update header & welcome
   dmActiveFriendName.textContent = friend.displayName || friend.username;
+  dmActiveFriendName.style.cursor = 'pointer';
+  dmActiveFriendName.onclick = () => openUserProfile(friend.id, friend);
+
   dmActiveFriendUsername.textContent = '@' + friend.username;
+  dmActiveFriendUsername.style.cursor = 'pointer';
+  dmActiveFriendUsername.onclick = () => openUserProfile(friend.id, friend);
+
   if (friend.isDeveloper) {
     dmFriendDevBadge.classList.remove('hidden');
   } else {
@@ -627,12 +870,16 @@ function renderFriendsUI() {
         const isActive = currentView === 'dm' && activeDmFriend && activeDmFriend.id === f.id;
         item.className = 'dm-item' + (isActive ? ' active' : '');
         item.setAttribute('data-id', f.id);
-        const avatarColor = getColor(f.username);
-        const initial = (f.displayName || f.username).charAt(0).toUpperCase();
         const devBadgeHtml = f.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+        const avatarHtml = createAvatarHtml({
+          avatarUrl: f.avatarUrl,
+          displayName: f.displayName,
+          username: f.username,
+          className: 'dm-item-avatar'
+        });
 
         item.innerHTML = `
-          <div class="dm-item-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+          ${avatarHtml}
           <span class="dm-item-name">${escapeHtml(f.displayName || f.username)}</span>
           ${devBadgeHtml}
         `;
@@ -655,12 +902,16 @@ function renderFriendsUI() {
       const card = document.createElement('div');
       card.className = 'friend-card';
       const devBadgeHtml = f.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
-      const avatarColor = getColor(f.username);
-      const initial = (f.displayName || f.username).charAt(0).toUpperCase();
+      const avatarHtml = createAvatarHtml({
+        avatarUrl: f.avatarUrl,
+        displayName: f.displayName,
+        username: f.username,
+        className: 'friend-avatar'
+      });
 
       card.innerHTML = `
-        <div class="friend-card-left">
-          <div class="friend-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+        <div class="friend-card-left" title="Click to view profile">
+          ${avatarHtml}
           <div class="friend-card-meta">
             <div class="friend-card-name-row">
               <span class="friend-card-name">${escapeHtml(f.displayName)}</span>
@@ -675,11 +926,17 @@ function renderFriendsUI() {
         </div>
       `;
 
-      card.querySelector('.btn-message-friend').addEventListener('click', () => {
+      card.querySelector('.friend-card-left').addEventListener('click', () => {
+        openUserProfile(f.id, f);
+      });
+
+      card.querySelector('.btn-message-friend').addEventListener('click', (e) => {
+        e.stopPropagation();
         switchToDmView(f);
       });
 
-      card.querySelector('.btn-remove-friend').addEventListener('click', () => {
+      card.querySelector('.btn-remove-friend').addEventListener('click', (e) => {
+        e.stopPropagation();
         handleRemoveFriend(f.id, f.displayName || f.username);
       });
 
@@ -696,12 +953,16 @@ function renderFriendsUI() {
       const card = document.createElement('div');
       card.className = 'friend-card';
       const devBadgeHtml = req.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
-      const avatarColor = getColor(req.username);
-      const initial = (req.displayName || req.username).charAt(0).toUpperCase();
+      const avatarHtml = createAvatarHtml({
+        avatarUrl: req.avatarUrl,
+        displayName: req.displayName,
+        username: req.username,
+        className: 'friend-avatar'
+      });
 
       card.innerHTML = `
-        <div class="friend-card-left">
-          <div class="friend-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+        <div class="friend-card-left" title="Click to view profile">
+          ${avatarHtml}
           <div class="friend-card-meta">
             <div class="friend-card-name-row">
               <span class="friend-card-name">${escapeHtml(req.displayName)}</span>
@@ -716,11 +977,17 @@ function renderFriendsUI() {
         </div>
       `;
 
-      card.querySelector('.btn-accept-friend').addEventListener('click', () => {
+      card.querySelector('.friend-card-left').addEventListener('click', () => {
+        openUserProfile(req.id, req);
+      });
+
+      card.querySelector('.btn-accept-friend').addEventListener('click', (e) => {
+        e.stopPropagation();
         handleRespondFriend(req.friendshipId, 'accept');
       });
 
-      card.querySelector('.btn-decline-friend').addEventListener('click', () => {
+      card.querySelector('.btn-decline-friend').addEventListener('click', (e) => {
+        e.stopPropagation();
         handleRespondFriend(req.friendshipId, 'decline');
       });
 
@@ -737,12 +1004,16 @@ function renderFriendsUI() {
       const card = document.createElement('div');
       card.className = 'friend-card';
       const devBadgeHtml = req.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
-      const avatarColor = getColor(req.username);
-      const initial = (req.displayName || req.username).charAt(0).toUpperCase();
+      const avatarHtml = createAvatarHtml({
+        avatarUrl: req.avatarUrl,
+        displayName: req.displayName,
+        username: req.username,
+        className: 'friend-avatar'
+      });
 
       card.innerHTML = `
-        <div class="friend-card-left">
-          <div class="friend-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+        <div class="friend-card-left" title="Click to view profile">
+          ${avatarHtml}
           <div class="friend-card-meta">
             <div class="friend-card-name-row">
               <span class="friend-card-name">${escapeHtml(req.displayName)}</span>
@@ -755,6 +1026,11 @@ function renderFriendsUI() {
           <span class="outgoing-tag">Request Sent</span>
         </div>
       `;
+
+      card.querySelector('.friend-card-left').addEventListener('click', () => {
+        openUserProfile(req.id, req);
+      });
+
       pendingOutgoingList.appendChild(card);
     });
   }
@@ -1243,6 +1519,17 @@ function connectWebSocket() {
             switchToDmView(friend);
           }
         });
+      } else if (msg.type === 'profile_updated') {
+        if (currentUser && msg.user && msg.user.id === currentUser.id) {
+          currentUser = { ...currentUser, ...msg.user };
+          applyUserProfile(currentUser);
+        }
+        if (activeDmFriend && msg.user && activeDmFriend.id === msg.user.id) {
+          activeDmFriend = { ...activeDmFriend, ...msg.user };
+          dmActiveFriendName.textContent = activeDmFriend.displayName || activeDmFriend.username;
+          dmWelcomeTitle.textContent = activeDmFriend.displayName || activeDmFriend.username;
+        }
+        loadFriends();
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -1273,25 +1560,44 @@ function connectWebSocket() {
 function appendMessage(msg, shouldScroll = true) {
   const authorName = msg.authorName || 'Anonymous';
   const authorUsername = msg.authorUsername ? `@${msg.authorUsername}` : '';
-  const initial = authorName.charAt(0).toUpperCase();
-  const color = getColor(msg.authorUsername || authorName);
   const timeFormatted = formatTime(msg.timestamp);
   const devBadgeHtml = msg.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+
+  const avatarHtml = createAvatarHtml({
+    avatarUrl: msg.authorAvatarUrl,
+    displayName: authorName,
+    username: msg.authorUsername,
+    className: 'message-avatar clickable-user'
+  });
 
   const item = document.createElement('div');
   item.className = 'message-item';
   item.innerHTML = `
-    <div class="message-avatar" style="background-color: ${color}">${escapeHtml(initial)}</div>
+    ${avatarHtml}
     <div class="message-body">
       <div class="message-meta">
-        <span class="message-author">${escapeHtml(authorName)}</span>
+        <span class="message-author clickable-user">${escapeHtml(authorName)}</span>
         ${devBadgeHtml}
-        <span class="message-username">${escapeHtml(authorUsername)}</span>
+        <span class="message-username clickable-user">${escapeHtml(authorUsername)}</span>
         <span class="message-time">${escapeHtml(timeFormatted)}</span>
       </div>
       <div class="message-text">${escapeHtml(msg.content)}</div>
     </div>
   `;
+
+  if (msg.authorId) {
+    item.querySelectorAll('.clickable-user').forEach(el => {
+      el.addEventListener('click', () => {
+        openUserProfile(msg.authorId, {
+          id: msg.authorId,
+          displayName: authorName,
+          username: msg.authorUsername,
+          avatarUrl: msg.authorAvatarUrl,
+          isDeveloper: msg.isDeveloper
+        });
+      });
+    });
+  }
 
   messagesList.appendChild(item);
 
@@ -1326,25 +1632,44 @@ chatForm.addEventListener('submit', (e) => {
 function appendDmMessage(msg, shouldScroll = true) {
   const authorName = msg.authorName || 'User';
   const authorUsername = msg.authorUsername ? `@${msg.authorUsername}` : '';
-  const initial = authorName.charAt(0).toUpperCase();
-  const color = getColor(msg.authorUsername || authorName);
   const timeFormatted = formatTime(msg.timestamp);
   const devBadgeHtml = msg.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+
+  const avatarHtml = createAvatarHtml({
+    avatarUrl: msg.authorAvatarUrl,
+    displayName: authorName,
+    username: msg.authorUsername,
+    className: 'message-avatar clickable-user'
+  });
 
   const item = document.createElement('div');
   item.className = 'message-item';
   item.innerHTML = `
-    <div class="message-avatar" style="background-color: ${color}">${escapeHtml(initial)}</div>
+    ${avatarHtml}
     <div class="message-body">
       <div class="message-meta">
-        <span class="message-author">${escapeHtml(authorName)}</span>
+        <span class="message-author clickable-user">${escapeHtml(authorName)}</span>
         ${devBadgeHtml}
-        <span class="message-username">${escapeHtml(authorUsername)}</span>
+        <span class="message-username clickable-user">${escapeHtml(authorUsername)}</span>
         <span class="message-time">${escapeHtml(timeFormatted)}</span>
       </div>
       <div class="message-text">${escapeHtml(msg.content)}</div>
     </div>
   `;
+
+  if (msg.authorId) {
+    item.querySelectorAll('.clickable-user').forEach(el => {
+      el.addEventListener('click', () => {
+        openUserProfile(msg.authorId, {
+          id: msg.authorId,
+          displayName: authorName,
+          username: msg.authorUsername,
+          avatarUrl: msg.authorAvatarUrl,
+          isDeveloper: msg.isDeveloper
+        });
+      });
+    });
+  }
 
   dmMessagesList.appendChild(item);
   if (shouldScroll) {
