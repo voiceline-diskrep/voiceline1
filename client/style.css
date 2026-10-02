@@ -14,6 +14,7 @@
   --danger: #da373c;
   --danger-hover: #b82b30;
   --online: #23a55a;
+  --online-hover: #1f9250;
   --offline: #f23f43;
   --border: rgba(255, 255, 255, 0.08);
 }
@@ -57,6 +58,18 @@ body {
   user-select: none;
 }
 
+.home-icon {
+  background-color: var(--bg-primary);
+  color: var(--text-normal);
+}
+
+.server-item.active .home-icon,
+.server-item:hover .home-icon {
+  background-color: var(--accent);
+  color: #fff;
+  border-radius: 16px;
+}
+
 .server-list {
   display: flex;
   flex-direction: column;
@@ -65,7 +78,7 @@ body {
   align-items: center;
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 160px);
 }
 
 .server-item {
@@ -152,7 +165,7 @@ body {
 }
 
 /* =======================================================
-   2. CHANNEL SIDEBAR (INSIDE SERVER)
+   2. CHANNEL & FRIENDS SIDEBAR
    ======================================================= */
 .channel-sidebar {
   width: 240px;
@@ -296,8 +309,63 @@ body {
   color: var(--danger);
 }
 
+/* Friends Sidebar Nav */
+.friends-sidebar-nav {
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.friends-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.friends-nav-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-normal);
+}
+
+.friends-nav-btn.active {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-header);
+  font-weight: 600;
+}
+
+.friends-nav-btn.add-friend-tab {
+  color: var(--online);
+  font-weight: 600;
+}
+
+.nav-count-badge {
+  background: var(--bg-tertiary);
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  margin-left: auto;
+  font-weight: 700;
+}
+
+.nav-count-badge.highlight {
+  background: var(--danger);
+  color: #fff;
+}
+
 /* =======================================================
-   3. MAIN CHAT LAYOUT
+   3. MAIN LAYOUT & CHAT
    ======================================================= */
 .app-layout {
   display: flex;
@@ -308,7 +376,6 @@ body {
   min-width: 0;
 }
 
-/* Header */
 .chat-header {
   height: 56px;
   background-color: var(--bg-primary);
@@ -418,7 +485,7 @@ body {
   background-color: var(--offline);
 }
 
-/* Current User Capsule */
+/* User Capsule */
 .user-capsule {
   display: flex;
   align-items: center;
@@ -601,7 +668,7 @@ body {
   word-break: break-word;
 }
 
-/* Footer / Input Area */
+/* Chat Footer / Input Area */
 .chat-footer {
   padding: 0 16px 20px 16px;
   background-color: var(--bg-primary);
@@ -666,7 +733,276 @@ body {
 }
 
 /* =======================================================
-   4. MODALS & AUTH OVERLAY
+   4. FRIENDS VIEW STYLES
+   ======================================================= */
+.friends-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-header);
+  border-right: 1px solid var(--border);
+  padding-right: 16px;
+}
+
+.friends-header-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.f-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.f-tab-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-normal);
+}
+
+.f-tab-btn.active {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-header);
+}
+
+.f-tab-btn.add-btn {
+  background-color: var(--online);
+  color: #fff;
+  font-weight: 700;
+}
+
+.f-tab-btn.add-btn:hover {
+  background-color: var(--online-hover);
+}
+
+.friends-main-content {
+  flex: 1;
+  padding: 24px 32px;
+  overflow-y: auto;
+}
+
+.section-title-bar {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.mt-20 {
+  margin-top: 28px;
+}
+
+.friends-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.friend-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border-top: 1px solid var(--border);
+  transition: background-color 0.1s ease;
+}
+
+.friend-card:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.friend-card-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.friend-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.friend-card-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.friend-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.friend-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-header);
+}
+
+.friend-card-handle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.friend-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-friend-action {
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-remove-friend {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid rgba(218, 55, 60, 0.3);
+}
+
+.btn-remove-friend:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-accept-friend {
+  background: var(--online);
+  color: #fff;
+  border: none;
+}
+
+.btn-accept-friend:hover {
+  background: var(--online-hover);
+}
+
+.btn-decline-friend {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.btn-decline-friend:hover {
+  color: var(--danger);
+  border-color: rgba(218, 55, 60, 0.4);
+}
+
+.outgoing-tag {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.empty-friends-state {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Add Friend Box */
+.add-friend-box {
+  max-width: 600px;
+}
+
+.add-friend-box h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-header);
+  margin-bottom: 6px;
+}
+
+.add-friend-box p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.add-friend-input-wrapper {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  padding: 4px 6px 4px 14px;
+  transition: border-color 0.15s ease;
+}
+
+.add-friend-input-wrapper:focus-within {
+  border-color: var(--online);
+}
+
+.add-friend-input-wrapper input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-header);
+  font-size: 14px;
+  padding: 6px 0;
+}
+
+.add-friend-submit-btn {
+  margin-top: 0 !important;
+  background-color: var(--online) !important;
+  padding: 8px 16px !important;
+  font-size: 13px !important;
+}
+
+.add-friend-submit-btn:hover {
+  background-color: var(--online-hover) !important;
+}
+
+.add-friend-alert {
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.add-friend-alert.success {
+  background: rgba(35, 165, 90, 0.15);
+  color: var(--online);
+  border: 1px solid rgba(35, 165, 90, 0.3);
+}
+
+.add-friend-alert.error {
+  background: rgba(218, 55, 60, 0.15);
+  color: #ff7b72;
+  border: 1px solid rgba(218, 55, 60, 0.3);
+}
+
+/* =======================================================
+   5. MODALS & AUTH OVERLAY
    ======================================================= */
 .auth-overlay, .modal-overlay {
   position: fixed;
@@ -897,7 +1233,7 @@ body {
 }
 
 /* =======================================================
-   5. SHUTDOWN NOTIFICATION OVERLAY
+   6. SHUTDOWN NOTIFICATION OVERLAY
    ======================================================= */
 .shutdown-modal-overlay {
   position: fixed;

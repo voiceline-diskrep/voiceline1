@@ -51,6 +51,18 @@ db.exec(`
     content TEXT NOT NULL,
     timestamp TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS friendships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'accepted')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_friendships_pair ON friendships(sender_id, receiver_id);
 `);
 
 // Migrations
@@ -117,6 +129,17 @@ const getUserByUsernameStmt = db.prepare(`
 function getUserByUsername(username) {
   if (!username) return null;
   return getUserByUsernameStmt.get(username.trim()) || null;
+}
+
+const getUserByIdStmt = db.prepare(`
+  SELECT id, username, display_name, is_developer, created_at
+  FROM users
+  WHERE id = ?
+`);
+
+function getUserById(id) {
+  if (!id) return null;
+  return getUserByIdStmt.get(Number(id)) || null;
 }
 
 function suggestUsername(desiredUsername) {
@@ -278,7 +301,6 @@ function createServer({ name, createdBy }) {
   const result = insertServerStmt.run(cleanName, createdBy || null, createdAt);
   const serverId = Number(result.lastInsertRowid);
 
-  // Automatically create default 'general' channel for new server
   insertChannelStmt.run(serverId, 'general', createdAt);
 
   return {
@@ -379,6 +401,179 @@ function deleteChannel({ serverId, channelId }) {
   return true;
 }
 
+// Friend System Operations
+const findExistingFriendshipStmt = db.prepare(`
+  SELECT id, sender_id, receiver_id, status
+  FROM friendships
+  WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+`);
+
+const insertFriendshipStmt = db.prepare(`
+  INSERT INTO friendships (sender_id, receiver_id, status, created_at, updated_at)
+  VALUES (?, ?, 'pending', ?, ?)
+`);
+
+const updateFriendshipStatusStmt = db.prepare(`
+  UPDATE friendships SET status = ?, updated_at = ? WHERE id = ?
+`);
+
+function sendFriendRequest(senderId, targetUsername) {
+  const sId = Number(senderId);
+  const cleanUsername = (targetUsername || '').trim();
+
+  if (!cleanUsername) {
+    throw new Error('Please enter a username.');
+  }
+
+  const target = getUserByUsername(cleanUsername);
+  if (!target) {
+    throw new Error(`User "@${cleanUsername}" does not exist.`);
+  }
+
+  if (target.id === sId) {
+    throw new Error('You cannot add yourself as a friend.');
+  }
+
+  const existing = findExistingFriendshipStmt.get(sId, target.id, target.id, sId);
+  const now = new Date().toISOString();
+
+  if (existing) {
+    if (existing.status === 'accepted') {
+      throw new Error(`You are already friends with @${target.username}.`);
+    }
+
+    if (existing.sender_id === sId) {
+      throw new Error(`Friend request to @${target.username} is already pending.`);
+    }
+
+    // Target user had already sent request to sender -> auto accept!
+    updateFriendshipStatusStmt.run('accepted', now, existing.id);
+    return {
+      success: true,
+      autoAccepted: true,
+      friend: {
+        id: target.id,
+        username: target.username,
+        displayName: target.display_name,
+        isDeveloper: Boolean(target.is_developer)
+      }
+    };
+  }
+
+  // Create new pending friend request
+  const result = insertFriendshipStmt.run(sId, target.id, now, now);
+  return {
+    success: true,
+    friendshipId: Number(result.lastInsertRowid),
+    targetId: target.id,
+    targetUsername: target.username
+  };
+}
+
+const getAcceptedFriendsStmt = db.prepare(`
+  SELECT 
+    f.id AS friendshipId,
+    f.created_at AS friendsSince,
+    CASE WHEN f.sender_id = ? THEN u2.id ELSE u1.id END AS id,
+    CASE WHEN f.sender_id = ? THEN u2.username ELSE u1.username END AS username,
+    CASE WHEN f.sender_id = ? THEN u2.display_name ELSE u1.display_name END AS displayName,
+    CASE WHEN f.sender_id = ? THEN u2.is_developer ELSE u1.is_developer END AS isDeveloper
+  FROM friendships f
+  JOIN users u1 ON f.sender_id = u1.id
+  JOIN users u2 ON f.receiver_id = u2.id
+  WHERE (f.sender_id = ? OR f.receiver_id = ?) AND f.status = 'accepted'
+  ORDER BY displayName COLLATE NOCASE ASC
+`);
+
+const getPendingIncomingStmt = db.prepare(`
+  SELECT 
+    f.id AS friendshipId,
+    f.created_at AS createdAt,
+    u.id AS fromId,
+    u.username,
+    u.display_name AS displayName,
+    u.is_developer AS isDeveloper
+  FROM friendships f
+  JOIN users u ON f.sender_id = u.id
+  WHERE f.receiver_id = ? AND f.status = 'pending'
+  ORDER BY f.id DESC
+`);
+
+const getPendingOutgoingStmt = db.prepare(`
+  SELECT 
+    f.id AS friendshipId,
+    f.created_at AS createdAt,
+    u.id AS toId,
+    u.username,
+    u.display_name AS displayName,
+    u.is_developer AS isDeveloper
+  FROM friendships f
+  JOIN users u ON f.receiver_id = u.id
+  WHERE f.sender_id = ? AND f.status = 'pending'
+  ORDER BY f.id DESC
+`);
+
+function getFriendships(userId) {
+  const uId = Number(userId);
+  const friends = getAcceptedFriendsStmt.all(uId, uId, uId, uId, uId, uId).map(f => ({
+    ...f,
+    isDeveloper: Boolean(f.isDeveloper)
+  }));
+  const pendingIncoming = getPendingIncomingStmt.all(uId).map(f => ({
+    ...f,
+    isDeveloper: Boolean(f.isDeveloper)
+  }));
+  const pendingOutgoing = getPendingOutgoingStmt.all(uId).map(f => ({
+    ...f,
+    isDeveloper: Boolean(f.isDeveloper)
+  }));
+
+  return {
+    friends,
+    pendingIncoming,
+    pendingOutgoing
+  };
+}
+
+const getFriendshipByIdStmt = db.prepare(`
+  SELECT id, sender_id, receiver_id, status FROM friendships WHERE id = ?
+`);
+
+const deleteFriendshipByIdStmt = db.prepare(`DELETE FROM friendships WHERE id = ?`);
+
+function respondToFriendRequest(userId, friendshipId, action) {
+  const uId = Number(userId);
+  const fId = Number(friendshipId);
+
+  const row = getFriendshipByIdStmt.get(fId);
+  if (!row || row.receiver_id !== uId || row.status !== 'pending') {
+    throw new Error('Friend request not found or already handled.');
+  }
+
+  const now = new Date().toISOString();
+  if (action === 'accept') {
+    updateFriendshipStatusStmt.run('accepted', now, fId);
+    return { success: true, action: 'accepted', senderId: row.sender_id };
+  } else if (action === 'decline') {
+    deleteFriendshipByIdStmt.run(fId);
+    return { success: true, action: 'declined', senderId: row.sender_id };
+  } else {
+    throw new Error('Invalid response action.');
+  }
+}
+
+const deleteFriendPairStmt = db.prepare(`
+  DELETE FROM friendships 
+  WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+`);
+
+function removeFriend(userId, friendUserId) {
+  const uId = Number(userId);
+  const fId = Number(friendUserId);
+  deleteFriendPairStmt.run(uId, fId, fId, uId);
+  return { success: true };
+}
+
 // Message Operations
 const insertMessageStmt = db.prepare(`
   INSERT INTO messages (server_id, channel_id, author, author_id, author_name, author_username, is_developer, content, timestamp)
@@ -432,6 +627,7 @@ module.exports = {
   createUser,
   authenticateUser,
   getUserByUsername,
+  getUserById,
   suggestUsername,
   createSession,
   getUserByToken,
@@ -445,6 +641,10 @@ module.exports = {
   getChannelByName,
   createChannel,
   deleteChannel,
+  sendFriendRequest,
+  getFriendships,
+  respondToFriendRequest,
+  removeFriend,
   saveMessage,
   getRecentMessages
 };

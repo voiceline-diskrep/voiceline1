@@ -18,6 +18,7 @@ const suggestionBox = document.getElementById('suggestionBox');
 const useSuggestionBtn = document.getElementById('useSuggestionBtn');
 
 // DOM Elements - Server Rail & Modals
+const homeBtn = document.getElementById('homeBtn');
 const serverList = document.getElementById('serverList');
 const openCreateServerBtn = document.getElementById('openCreateServerBtn');
 const createServerModalOverlay = document.getElementById('createServerModalOverlay');
@@ -27,6 +28,7 @@ const createServerError = document.getElementById('createServerError');
 const cancelCreateServerBtn = document.getElementById('cancelCreateServerBtn');
 
 // DOM Elements - Channel Sidebar & Modals
+const channelSidebar = document.getElementById('channelSidebar');
 const currentServerTitle = document.getElementById('currentServerTitle');
 const channelList = document.getElementById('channelList');
 const openCreateChannelBtn = document.getElementById('openCreateChannelBtn');
@@ -36,19 +38,56 @@ const channelNameInput = document.getElementById('channelNameInput');
 const createChannelError = document.getElementById('createChannelError');
 const cancelCreateChannelBtn = document.getElementById('cancelCreateChannelBtn');
 
-// DOM Elements - Header & User Capsule
+// DOM Elements - Friends Sidebar & Views
+const friendsSidebar = document.getElementById('friendsSidebar');
+const friendsLayout = document.getElementById('friendsLayout');
+const chatLayout = document.getElementById('chatLayout');
+
+const friendsNavAllBtn = document.getElementById('friendsNavAllBtn');
+const friendsNavPendingBtn = document.getElementById('friendsNavPendingBtn');
+const friendsNavAddBtn = document.getElementById('friendsNavAddBtn');
+const sidebarFriendsCount = document.getElementById('sidebarFriendsCount');
+const sidebarPendingCount = document.getElementById('sidebarPendingCount');
+
+const fTabAllBtn = document.getElementById('fTabAllBtn');
+const fTabPendingBtn = document.getElementById('fTabPendingBtn');
+const fTabAddBtn = document.getElementById('fTabAddBtn');
+
+const viewAllFriends = document.getElementById('viewAllFriends');
+const allFriendsList = document.getElementById('allFriendsList');
+const allFriendsCountText = document.getElementById('allFriendsCountText');
+
+const viewPendingFriends = document.getElementById('viewPendingFriends');
+const pendingIncomingList = document.getElementById('pendingIncomingList');
+const pendingOutgoingList = document.getElementById('pendingOutgoingList');
+const pendingIncomingCountText = document.getElementById('pendingIncomingCountText');
+const pendingOutgoingCountText = document.getElementById('pendingOutgoingCountText');
+
+const viewAddFriend = document.getElementById('viewAddFriend');
+const addFriendForm = document.getElementById('addFriendForm');
+const addFriendInput = document.getElementById('addFriendInput');
+const addFriendAlert = document.getElementById('addFriendAlert');
+
+// DOM Elements - Header & User Capsules
 const activeChannelName = document.getElementById('activeChannelName');
 const activeChannelDesc = document.getElementById('activeChannelDesc');
 const connectionStatus = document.getElementById('connectionStatus');
 const developerPanel = document.getElementById('developerPanel');
 const shutdownServerBtn = document.getElementById('shutdownServerBtn');
+
 const currentUserAvatar = document.getElementById('currentUserAvatar');
 const currentUserName = document.getElementById('currentUserName');
 const currentUserHandle = document.getElementById('currentUserHandle');
 const currentUserDevBadge = document.getElementById('currentUserDevBadge');
 const logoutBtn = document.getElementById('logoutBtn');
 
-// DOM Elements - Chat & Notifications
+const currentUserAvatar2 = document.getElementById('currentUserAvatar2');
+const currentUserName2 = document.getElementById('currentUserName2');
+const currentUserHandle2 = document.getElementById('currentUserHandle2');
+const currentUserDevBadge2 = document.getElementById('currentUserDevBadge2');
+const logoutBtn2 = document.getElementById('logoutBtn2');
+
+// DOM Elements - Chat & Shutdown
 const messagesContainer = document.getElementById('messagesContainer');
 const messagesList = document.getElementById('messagesList');
 const welcomeTitle = document.getElementById('welcomeTitle');
@@ -65,6 +104,10 @@ let servers = [];
 let channels = [];
 let activeServerId = 1;
 let activeChannelId = 1;
+let currentView = 'server'; // 'server' or 'friends'
+let currentFriendsTab = 'all'; // 'all', 'pending', 'add'
+let friendsData = { friends: [], pendingIncoming: [], pendingOutgoing: [] };
+
 let socket = null;
 let reconnectTimer = null;
 let isIntentionalDisconnect = false;
@@ -217,32 +260,47 @@ function loginSuccess(newToken, user) {
   applyUserProfile(user);
   loadServers().then(() => {
     connectWebSocket();
+    loadFriends();
   });
 }
 
 function applyUserProfile(user) {
-  currentUserName.textContent = user.displayName;
-  currentUserHandle.textContent = `@${user.username}`;
-  currentUserAvatar.textContent = (user.displayName || user.username).charAt(0).toUpperCase();
-  currentUserAvatar.style.backgroundColor = getColor(user.username);
+  const dName = user.displayName;
+  const handle = `@${user.username}`;
+  const initial = (user.displayName || user.username).charAt(0).toUpperCase();
+  const avatarColor = getColor(user.username);
+
+  currentUserName.textContent = dName;
+  currentUserHandle.textContent = handle;
+  currentUserAvatar.textContent = initial;
+  currentUserAvatar.style.backgroundColor = avatarColor;
+
+  if (currentUserName2) {
+    currentUserName2.textContent = dName;
+    currentUserHandle2.textContent = handle;
+    currentUserAvatar2.textContent = initial;
+    currentUserAvatar2.style.backgroundColor = avatarColor;
+  }
 
   if (user.isDeveloper) {
     currentUserDevBadge.classList.remove('hidden');
+    if (currentUserDevBadge2) currentUserDevBadge2.classList.remove('hidden');
     developerPanel.classList.remove('hidden');
     openCreateServerBtn.classList.remove('hidden');
     openCreateChannelBtn.classList.remove('hidden');
   } else {
     currentUserDevBadge.classList.add('hidden');
+    if (currentUserDevBadge2) currentUserDevBadge2.classList.add('hidden');
     developerPanel.classList.add('hidden');
     openCreateServerBtn.classList.add('hidden');
     openCreateChannelBtn.classList.add('hidden');
   }
 }
 
-logoutBtn.addEventListener('click', async () => {
+function handleLogout() {
   if (token) {
     try {
-      await fetch('/api/logout', {
+      fetch('/api/logout', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -260,7 +318,10 @@ logoutBtn.addEventListener('click', async () => {
 
   authOverlay.classList.remove('hidden');
   tabLoginBtn.click();
-});
+}
+
+logoutBtn.addEventListener('click', handleLogout);
+if (logoutBtn2) logoutBtn2.addEventListener('click', handleLogout);
 
 // Check session on boot
 async function checkCurrentSession() {
@@ -279,6 +340,7 @@ async function checkCurrentSession() {
       authOverlay.classList.add('hidden');
       applyUserProfile(currentUser);
       await loadServers();
+      await loadFriends();
       connectWebSocket();
     } else {
       localStorage.removeItem('voiceline_token');
@@ -287,6 +349,301 @@ async function checkCurrentSession() {
     }
   } catch {
     authOverlay.classList.remove('hidden');
+  }
+}
+
+// ==========================================
+// VIEW NAVIGATION (SERVERS vs FRIENDS)
+// ==========================================
+homeBtn.addEventListener('click', () => {
+  switchToFriendsView();
+});
+
+function switchToFriendsView() {
+  currentView = 'friends';
+
+  // Highlight Home button, unhighlight servers
+  homeBtn.classList.add('active');
+  document.querySelectorAll('.server-item:not(#homeBtn)').forEach(el => el.classList.remove('active'));
+
+  // Switch Sidebars
+  channelSidebar.classList.add('hidden');
+  friendsSidebar.classList.remove('hidden');
+
+  // Switch Layouts
+  chatLayout.classList.add('hidden');
+  friendsLayout.classList.remove('hidden');
+
+  switchFriendsTab(currentFriendsTab);
+  loadFriends();
+}
+
+function switchToServerView(serverId) {
+  currentView = 'server';
+
+  homeBtn.classList.remove('active');
+  friendsSidebar.classList.add('hidden');
+  channelSidebar.classList.remove('hidden');
+
+  friendsLayout.classList.add('hidden');
+  chatLayout.classList.remove('hidden');
+
+  selectServer(serverId);
+}
+
+// ==========================================
+// FRIENDS SYSTEM
+// ==========================================
+function switchFriendsTab(tab) {
+  currentFriendsTab = tab;
+
+  // Sidebar buttons
+  friendsNavAllBtn.classList.toggle('active', tab === 'all');
+  friendsNavPendingBtn.classList.toggle('active', tab === 'pending');
+  friendsNavAddBtn.classList.toggle('active', tab === 'add');
+
+  // Header tab buttons
+  fTabAllBtn.classList.toggle('active', tab === 'all');
+  fTabPendingBtn.classList.toggle('active', tab === 'pending');
+  fTabAddBtn.classList.toggle('active', tab === 'add');
+
+  // Sections
+  viewAllFriends.classList.toggle('hidden', tab !== 'all');
+  viewPendingFriends.classList.toggle('hidden', tab !== 'pending');
+  viewAddFriend.classList.toggle('hidden', tab !== 'add');
+
+  if (tab === 'add') {
+    addFriendInput.focus();
+    addFriendAlert.classList.add('hidden');
+  }
+}
+
+friendsNavAllBtn.addEventListener('click', () => switchFriendsTab('all'));
+friendsNavPendingBtn.addEventListener('click', () => switchFriendsTab('pending'));
+friendsNavAddBtn.addEventListener('click', () => switchFriendsTab('add'));
+
+fTabAllBtn.addEventListener('click', () => switchFriendsTab('all'));
+fTabPendingBtn.addEventListener('click', () => switchFriendsTab('pending'));
+fTabAddBtn.addEventListener('click', () => switchFriendsTab('add'));
+
+async function loadFriends() {
+  if (!token) return;
+
+  try {
+    const res = await fetch('/api/friends', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      friendsData = {
+        friends: data.friends || [],
+        pendingIncoming: data.pendingIncoming || [],
+        pendingOutgoing: data.pendingOutgoing || []
+      };
+      renderFriendsUI();
+    }
+  } catch (err) {
+    console.error('Failed to load friends:', err);
+  }
+}
+
+function renderFriendsUI() {
+  const { friends, pendingIncoming, pendingOutgoing } = friendsData;
+
+  // Counts
+  sidebarFriendsCount.textContent = friends.length;
+  allFriendsCountText.textContent = friends.length;
+
+  const totalPending = pendingIncoming.length;
+  sidebarPendingCount.textContent = totalPending;
+  sidebarPendingCount.classList.toggle('hidden', totalPending === 0);
+
+  pendingIncomingCountText.textContent = pendingIncoming.length;
+  pendingOutgoingCountText.textContent = pendingOutgoing.length;
+
+  // 1. Render All Friends
+  allFriendsList.innerHTML = '';
+  if (friends.length === 0) {
+    allFriendsList.innerHTML = `<div class="empty-friends-state">No friends yet. Add a friend using the "Add Friend" tab!</div>`;
+  } else {
+    friends.forEach(f => {
+      const card = document.createElement('div');
+      card.className = 'friend-card';
+      const devBadgeHtml = f.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+      const avatarColor = getColor(f.username);
+      const initial = (f.displayName || f.username).charAt(0).toUpperCase();
+
+      card.innerHTML = `
+        <div class="friend-card-left">
+          <div class="friend-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+          <div class="friend-card-meta">
+            <div class="friend-card-name-row">
+              <span class="friend-card-name">${escapeHtml(f.displayName)}</span>
+              ${devBadgeHtml}
+            </div>
+            <span class="friend-card-handle">@${escapeHtml(f.username)}</span>
+          </div>
+        </div>
+        <div class="friend-actions">
+          <button type="button" class="btn-friend-action btn-remove-friend" title="Remove Friend">Remove</button>
+        </div>
+      `;
+
+      card.querySelector('.btn-remove-friend').addEventListener('click', () => {
+        handleRemoveFriend(f.id, f.displayName || f.username);
+      });
+
+      allFriendsList.appendChild(card);
+    });
+  }
+
+  // 2. Render Incoming Pending Requests
+  pendingIncomingList.innerHTML = '';
+  if (pendingIncoming.length === 0) {
+    pendingIncomingList.innerHTML = `<div class="empty-friends-state">No pending incoming requests.</div>`;
+  } else {
+    pendingIncoming.forEach(req => {
+      const card = document.createElement('div');
+      card.className = 'friend-card';
+      const devBadgeHtml = req.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+      const avatarColor = getColor(req.username);
+      const initial = (req.displayName || req.username).charAt(0).toUpperCase();
+
+      card.innerHTML = `
+        <div class="friend-card-left">
+          <div class="friend-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+          <div class="friend-card-meta">
+            <div class="friend-card-name-row">
+              <span class="friend-card-name">${escapeHtml(req.displayName)}</span>
+              ${devBadgeHtml}
+            </div>
+            <span class="friend-card-handle">@${escapeHtml(req.username)}</span>
+          </div>
+        </div>
+        <div class="friend-actions">
+          <button type="button" class="btn-friend-action btn-accept-friend" title="Accept Request">Accept</button>
+          <button type="button" class="btn-friend-action btn-decline-friend" title="Decline Request">Decline</button>
+        </div>
+      `;
+
+      card.querySelector('.btn-accept-friend').addEventListener('click', () => {
+        handleRespondFriend(req.friendshipId, 'accept');
+      });
+
+      card.querySelector('.btn-decline-friend').addEventListener('click', () => {
+        handleRespondFriend(req.friendshipId, 'decline');
+      });
+
+      pendingIncomingList.appendChild(card);
+    });
+  }
+
+  // 3. Render Outgoing Pending Requests
+  pendingOutgoingList.innerHTML = '';
+  if (pendingOutgoing.length === 0) {
+    pendingOutgoingList.innerHTML = `<div class="empty-friends-state">No pending outgoing requests.</div>`;
+  } else {
+    pendingOutgoing.forEach(req => {
+      const card = document.createElement('div');
+      card.className = 'friend-card';
+      const devBadgeHtml = req.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+      const avatarColor = getColor(req.username);
+      const initial = (req.displayName || req.username).charAt(0).toUpperCase();
+
+      card.innerHTML = `
+        <div class="friend-card-left">
+          <div class="friend-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+          <div class="friend-card-meta">
+            <div class="friend-card-name-row">
+              <span class="friend-card-name">${escapeHtml(req.displayName)}</span>
+              ${devBadgeHtml}
+            </div>
+            <span class="friend-card-handle">@${escapeHtml(req.username)}</span>
+          </div>
+        </div>
+        <div class="friend-actions">
+          <span class="outgoing-tag">Request Sent</span>
+        </div>
+      `;
+      pendingOutgoingList.appendChild(card);
+    });
+  }
+}
+
+// Add Friend Form Submission
+addFriendForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  addFriendAlert.classList.add('hidden');
+  addFriendAlert.className = 'add-friend-alert';
+
+  const targetUsername = addFriendInput.value.trim();
+  if (!targetUsername) return;
+
+  try {
+    const res = await fetch('/api/friends/request', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ username: targetUsername })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      addFriendAlert.textContent = data.error || 'Failed to send friend request.';
+      addFriendAlert.classList.add('error');
+      addFriendAlert.classList.remove('hidden');
+      return;
+    }
+
+    addFriendAlert.textContent = data.autoAccepted 
+      ? `Success! You and @${data.friend.username} are now friends!`
+      : `Success! Friend request sent to @${data.targetUsername}.`;
+    addFriendAlert.classList.add('success');
+    addFriendAlert.classList.remove('hidden');
+    addFriendInput.value = '';
+
+    await loadFriends();
+  } catch (err) {
+    addFriendAlert.textContent = 'Could not contact server.';
+    addFriendAlert.classList.add('error');
+    addFriendAlert.classList.remove('hidden');
+  }
+});
+
+async function handleRespondFriend(friendshipId, action) {
+  try {
+    const res = await fetch('/api/friends/respond', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ friendshipId, action })
+    });
+    if (res.ok) {
+      await loadFriends();
+    }
+  } catch (err) {
+    console.error('Failed to respond to friend request:', err);
+  }
+}
+
+async function handleRemoveFriend(friendUserId, friendName) {
+  const confirmRemove = confirm(`Are you sure you want to remove ${friendName} from your friends list?`);
+  if (!confirmRemove) return;
+
+  try {
+    const res = await fetch(`/api/friends/${friendUserId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      await loadFriends();
+    }
+  } catch (err) {
+    console.error('Failed to remove friend:', err);
   }
 }
 
@@ -305,10 +662,12 @@ async function loadServers() {
       servers = data.servers || [];
       renderServerList();
 
-      if (!servers.some(s => s.id === activeServerId) && servers.length > 0) {
-        await selectServer(servers[0].id);
-      } else {
-        await selectServer(activeServerId);
+      if (currentView === 'server') {
+        if (!servers.some(s => s.id === activeServerId) && servers.length > 0) {
+          await selectServer(servers[0].id);
+        } else {
+          await selectServer(activeServerId);
+        }
       }
     }
   } catch (err) {
@@ -321,7 +680,7 @@ function renderServerList() {
 
   servers.forEach(server => {
     const item = document.createElement('div');
-    item.className = 'server-item' + (server.id === activeServerId ? ' active' : '');
+    item.className = 'server-item' + (currentView === 'server' && server.id === activeServerId ? ' active' : '');
     item.setAttribute('data-id', server.id);
     item.title = server.name;
 
@@ -332,7 +691,7 @@ function renderServerList() {
     `;
 
     item.addEventListener('click', () => {
-      selectServer(server.id);
+      switchToServerView(server.id);
     });
 
     serverList.appendChild(item);
@@ -342,8 +701,7 @@ function renderServerList() {
 async function selectServer(serverId) {
   activeServerId = Number(serverId);
 
-  // Update active state in server rail
-  document.querySelectorAll('.server-item').forEach(el => {
+  document.querySelectorAll('.server-item:not(#homeBtn)').forEach(el => {
     el.classList.toggle('active', Number(el.getAttribute('data-id')) === activeServerId);
   });
 
@@ -386,7 +744,7 @@ function renderChannelList() {
     item.setAttribute('data-id', ch.id);
 
     const deleteBtnHtml = (currentUser && currentUser.isDeveloper && channels.length > 1) 
-      ? `<button type="button" class="channel-delete-btn" title="Delete Channel" aria-label="Delete">?</button>` 
+      ? `<button type="button" class="channel-delete-btn" title="Delete Channel" aria-label="Delete">✕</button>` 
       : '';
 
     item.innerHTML = `
@@ -413,7 +771,6 @@ function renderChannelList() {
 function selectChannel(channelId) {
   activeChannelId = Number(channelId);
 
-  // Update active state in channels sidebar
   document.querySelectorAll('.channel-item').forEach(el => {
     el.classList.toggle('active', Number(el.getAttribute('data-id')) === activeChannelId);
   });
@@ -428,10 +785,8 @@ function selectChannel(channelId) {
   messageInput.placeholder = `Message #${curChannel.name}... (Press Enter to send)`;
   messageInput.focus();
 
-  // Clear messages list while waiting for channel history
   messagesList.innerHTML = '';
 
-  // Inform WebSocket to tune into this channel
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({
       type: 'join_channel',
@@ -484,7 +839,7 @@ createServerForm.addEventListener('submit', async (e) => {
 
     createServerModalOverlay.classList.add('hidden');
     await loadServers();
-    selectServer(data.server.id);
+    switchToServerView(data.server.id);
   } catch (err) {
     createServerError.textContent = 'Could not contact server.';
   }
@@ -539,7 +894,6 @@ createChannelForm.addEventListener('submit', async (e) => {
   }
 });
 
-// Developer Delete Channel
 async function handleDeleteChannel(channelId, channelName) {
   const confirmDelete = confirm(`Are you sure you want to delete #${channelName}?\n\nAll messages in this channel will be permanently removed.`);
   if (!confirmDelete) return;
@@ -637,6 +991,8 @@ function connectWebSocket() {
         if (msg.serverId === activeServerId) {
           loadChannels(activeServerId);
         }
+      } else if (msg.type === 'friends_updated') {
+        loadFriends();
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {

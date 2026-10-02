@@ -236,6 +236,75 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // ==========================================
+      // FRIEND SYSTEM API ROUTES
+      // ==========================================
+      // GET /api/friends
+      if (req.method === 'GET' && pathname === '/api/friends') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+        const data = db.getFriendships(user.id);
+        return sendJson(res, 200, { success: true, ...data });
+      }
+
+      // POST /api/friends/request
+      if (req.method === 'POST' && pathname === '/api/friends/request') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const { username } = await readJsonBody(req);
+        try {
+          const result = db.sendFriendRequest(user.id, username);
+          const notifyIds = [user.id];
+          if (result.targetId) notifyIds.push(result.targetId);
+          if (result.friend?.id) notifyIds.push(result.friend.id);
+
+          broadcastToUsers(notifyIds, { type: 'friends_updated' });
+          return sendJson(res, 200, { success: true, ...result });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // POST /api/friends/respond
+      if (req.method === 'POST' && pathname === '/api/friends/respond') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const { friendshipId, action } = await readJsonBody(req);
+        try {
+          const result = db.respondToFriendRequest(user.id, friendshipId, action);
+          broadcastToUsers([user.id, result.senderId], { type: 'friends_updated' });
+          return sendJson(res, 200, { success: true, ...result });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/friends/:friendUserId
+      const deleteFriendMatch = pathname.match(/^\/api\/friends\/(\d+)$/);
+      if (req.method === 'DELETE' && deleteFriendMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const friendUserId = Number(deleteFriendMatch[1]);
+        db.removeFriend(user.id, friendUserId);
+        broadcastToUsers([user.id, friendUserId], { type: 'friends_updated' });
+        return sendJson(res, 200, { success: true });
+      }
+
       // POST /api/server/shutdown (Developer only)
       if (req.method === 'POST' && pathname === '/api/server/shutdown') {
         const token = getTokenFromReq(req);
@@ -312,6 +381,16 @@ function broadcastToChannel(channelId, payload) {
   }
 }
 
+function broadcastToUsers(userIds, payload) {
+  const messageStr = JSON.stringify(payload);
+  const targetSet = new Set(userIds.filter(Boolean).map(Number));
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client.user && targetSet.has(client.user.id)) {
+      client.send(messageStr);
+    }
+  }
+}
+
 wss.on('connection', (ws, req) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const token = urlObj.searchParams.get('token');
@@ -330,7 +409,7 @@ wss.on('connection', (ws, req) => {
   ws.currentServerId = initialServerId;
   ws.currentChannelId = initialChannelId;
 
-  console.log(`[Voiceline] @${user.username} joined server #${ws.currentServerId}, channel #${ws.currentChannelId}`);
+  console.log(`[Voiceline] @${user.username} connected`);
 
   // Send message history for the active channel
   try {
@@ -384,7 +463,6 @@ wss.on('connection', (ws, req) => {
           content: content
         });
 
-        // Broadcast only to users currently viewing this specific channel
         broadcastToChannel(channelId, {
           type: 'chat',
           serverId: serverId,

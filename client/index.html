@@ -16,7 +16,7 @@
     <div class="auth-card">
       <div class="auth-header">
         <div class="auth-logo">Voiceline</div>
-        <p class="auth-tagline">A private chat room for your friends</p>
+        <p class="auth-tagline">A private chat app for your friends</p>
       </div>
 
       <!-- Tabs -->
@@ -127,13 +127,25 @@
     </div>
   </div>
 
-  <!-- App Wrapper: Server Rail + Channel Sidebar + Main Chat -->
+  <!-- App Wrapper: Server Rail + Sidebar + Main View -->
   <div class="app-wrapper">
     <!-- 1. Left Server Rail (Discord Style) -->
     <nav class="server-rail" aria-label="Servers">
-      <div class="server-list" id="serverList">
-        <!-- Server icons injected here dynamically -->
+      <!-- Friends / Home Button -->
+      <div class="server-item" id="homeBtn" title="Friends">
+        <div class="server-pill"></div>
+        <button type="button" class="server-icon home-icon" aria-label="Friends">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+          </svg>
+        </button>
       </div>
+
+      <div class="rail-divider"></div>
+
+      <!-- Servers List -->
+      <div class="server-list" id="serverList"></div>
+
       <div class="rail-divider"></div>
       <!-- Add Server Button (Developer Only) -->
       <button type="button" class="add-server-btn hidden" id="openCreateServerBtn" title="Create a Server">
@@ -143,7 +155,7 @@
       </button>
     </nav>
 
-    <!-- 2. Channel Sidebar (Inside Selected Server) -->
+    <!-- 2A. Channel Sidebar (Shown when viewing a server) -->
     <aside class="channel-sidebar" id="channelSidebar">
       <div class="server-banner">
         <h2 class="server-title-text" id="currentServerTitle">Voiceline</h2>
@@ -158,14 +170,38 @@
             </svg>
           </button>
         </div>
-        <div class="channel-list" id="channelList">
-          <!-- Channels list injected here dynamically -->
-        </div>
+        <div class="channel-list" id="channelList"></div>
       </div>
     </aside>
 
-    <!-- 3. Main Chat Layout -->
-    <div class="app-layout">
+    <!-- 2B. Friends Sidebar (Shown when viewing Friends) -->
+    <aside class="channel-sidebar hidden" id="friendsSidebar">
+      <div class="server-banner">
+        <h2 class="server-title-text">Friends Hub</h2>
+      </div>
+
+      <div class="friends-sidebar-nav">
+        <button type="button" class="friends-nav-btn active" id="friendsNavAllBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          <span>All Friends</span>
+          <span class="nav-count-badge" id="sidebarFriendsCount">0</span>
+        </button>
+
+        <button type="button" class="friends-nav-btn" id="friendsNavPendingBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>
+          <span>Pending</span>
+          <span class="nav-count-badge highlight hidden" id="sidebarPendingCount">0</span>
+        </button>
+
+        <button type="button" class="friends-nav-btn add-friend-tab" id="friendsNavAddBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          <span>Add Friend</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- 3A. Server Chat Layout -->
+    <div class="app-layout" id="chatLayout">
       <!-- Top Bar -->
       <header class="chat-header">
         <div class="header-left">
@@ -193,7 +229,7 @@
             <span class="status-text">Connecting...</span>
           </div>
 
-          <!-- Current User Profile Capsule -->
+          <!-- User Profile Capsule -->
           <div class="user-capsule" id="userCapsule">
             <div class="user-avatar" id="currentUserAvatar">U</div>
             <div class="user-meta">
@@ -242,6 +278,86 @@
           </div>
         </form>
       </footer>
+    </div>
+
+    <!-- 3B. Friends Manager Layout -->
+    <div class="app-layout hidden" id="friendsLayout">
+      <header class="chat-header">
+        <div class="header-left">
+          <div class="friends-header-title">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            <span>Friends</span>
+          </div>
+          <div class="friends-header-tabs">
+            <button type="button" class="f-tab-btn active" id="fTabAllBtn">All</button>
+            <button type="button" class="f-tab-btn" id="fTabPendingBtn">Pending</button>
+            <button type="button" class="f-tab-btn add-btn" id="fTabAddBtn">Add Friend</button>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <!-- User Profile Capsule repeated in Friends layout header -->
+          <div class="user-capsule">
+            <div class="user-avatar" id="currentUserAvatar2">U</div>
+            <div class="user-meta">
+              <div class="user-display-row">
+                <span class="user-name" id="currentUserName2">Loading...</span>
+                <span class="dev-badge hidden" id="currentUserDevBadge2">DEV</span>
+              </div>
+              <span class="user-handle" id="currentUserHandle2">@user</span>
+            </div>
+            <button type="button" class="logout-btn" id="logoutBtn2" title="Log Out">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="friends-main-content">
+        <!-- Tab 1: All Friends List -->
+        <section class="friends-section" id="viewAllFriends">
+          <div class="section-title-bar">
+            <span class="section-title-label">ALL FRIENDS — <span id="allFriendsCountText">0</span></span>
+          </div>
+          <div class="friends-cards-list" id="allFriendsList">
+            <!-- Friend cards injected here -->
+          </div>
+        </section>
+
+        <!-- Tab 2: Pending Requests -->
+        <section class="friends-section hidden" id="viewPendingFriends">
+          <div class="section-title-bar">
+            <span class="section-title-label">INCOMING REQUESTS — <span id="pendingIncomingCountText">0</span></span>
+          </div>
+          <div class="friends-cards-list" id="pendingIncomingList">
+            <!-- Incoming requests injected here -->
+          </div>
+
+          <div class="section-title-bar mt-20">
+            <span class="section-title-label">OUTGOING REQUESTS — <span id="pendingOutgoingCountText">0</span></span>
+          </div>
+          <div class="friends-cards-list" id="pendingOutgoingList">
+            <!-- Outgoing requests injected here -->
+          </div>
+        </section>
+
+        <!-- Tab 3: Add Friend Form -->
+        <section class="friends-section hidden" id="viewAddFriend">
+          <div class="add-friend-box">
+            <h2>ADD FRIEND</h2>
+            <p>You can add friends with their Voiceline username.</p>
+            <form id="addFriendForm" class="add-friend-form" autocomplete="off">
+              <div class="add-friend-input-wrapper">
+                <input type="text" id="addFriendInput" placeholder="Enter a username" required maxlength="32" />
+                <button type="submit" class="primary-btn add-friend-submit-btn">Send Friend Request</button>
+              </div>
+            </form>
+            <div class="add-friend-alert hidden" id="addFriendAlert"></div>
+          </div>
+        </section>
+      </main>
     </div>
   </div>
 
