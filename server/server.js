@@ -266,6 +266,25 @@ const server = http.createServer(async (req, res) => {
           if (result.friend?.id) notifyIds.push(result.friend.id);
 
           broadcastToUsers(notifyIds, { type: 'friends_updated' });
+
+          if (result.targetId) {
+            broadcastToUsers([result.targetId], {
+              type: 'friend_request_notification',
+              fromId: user.id,
+              fromUsername: user.username,
+              fromDisplayName: user.displayName
+            });
+          }
+
+          if (result.autoAccepted && result.friend?.id) {
+            broadcastToUsers([result.friend.id], {
+              type: 'friend_request_accepted',
+              friendId: user.id,
+              friendUsername: user.username,
+              friendDisplayName: user.displayName
+            });
+          }
+
           return sendJson(res, 200, { success: true, ...result });
         } catch (err) {
           return sendJson(res, 400, { error: err.message });
@@ -284,10 +303,48 @@ const server = http.createServer(async (req, res) => {
         try {
           const result = db.respondToFriendRequest(user.id, friendshipId, action);
           broadcastToUsers([user.id, result.senderId], { type: 'friends_updated' });
+
+          if (action === 'accept') {
+            broadcastToUsers([result.senderId], {
+              type: 'friend_request_accepted',
+              friendId: user.id,
+              friendUsername: user.username,
+              friendDisplayName: user.displayName
+            });
+          }
+
           return sendJson(res, 200, { success: true, ...result });
         } catch (err) {
           return sendJson(res, 400, { error: err.message });
         }
+      }
+
+      // GET /api/dm/:friendId (Fetch direct message history)
+      const dmMatch = pathname.match(/^\/api\/dm\/(\d+)$/);
+      if (req.method === 'GET' && dmMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const friendId = Number(dmMatch[1]);
+        const friendUser = db.getUserById(friendId);
+        if (!friendUser) {
+          return sendJson(res, 404, { error: 'User not found' });
+        }
+
+        const messages = db.getDirectMessagesHistory(user.id, friendId, 50);
+        return sendJson(res, 200, {
+          success: true,
+          friend: {
+            id: friendUser.id,
+            username: friendUser.username,
+            displayName: friendUser.display_name,
+            isDeveloper: Boolean(friendUser.is_developer)
+          },
+          messages
+        });
       }
 
       // DELETE /api/friends/:friendUserId
@@ -469,6 +526,34 @@ wss.on('connection', (ws, req) => {
           channelId: channelId,
           data: savedMessage
         });
+      } else if (parsed.type === 'join_dm') {
+        const friendId = Number(parsed.friendId);
+        ws.currentDmFriendId = friendId;
+        const messages = db.getDirectMessagesHistory(ws.user.id, friendId, 50);
+        ws.send(JSON.stringify({
+          type: 'dm_history',
+          friendId: friendId,
+          data: messages
+        }));
+        return;
+      } else if (parsed.type === 'direct_message') {
+        const friendId = Number(parsed.friendId);
+        const content = (parsed.content || '').trim();
+        if (!friendId || !content) return;
+
+        const savedMessage = db.saveDirectMessage({
+          senderId: ws.user.id,
+          receiverId: friendId,
+          content: content
+        });
+
+        broadcastToUsers([ws.user.id, friendId], {
+          type: 'direct_message',
+          senderId: ws.user.id,
+          receiverId: friendId,
+          data: savedMessage
+        });
+        return;
       } else if (parsed.type === 'server_shutdown') {
         if (!ws.user.isDeveloper) return;
         console.log(`[Voiceline] Shutdown initiated via WebSocket by @${ws.user.username}`);

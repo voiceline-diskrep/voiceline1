@@ -33,7 +33,7 @@
         </div>
         <div class="form-group">
           <label for="loginPassword">Password</label>
-          <input type="password" id="loginPassword" placeholder="••••••••" required autocomplete="current-password" />
+          <input type="password" id="loginPassword" placeholder="ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½" required autocomplete="current-password" />
         </div>
         <div class="auth-error" id="loginError"></div>
         <button type="submit" class="primary-btn" id="loginSubmitBtn">Log In</button>
@@ -58,7 +58,7 @@
 
         <div class="form-group">
           <label for="signupPassword">Password</label>
-          <input type="password" id="signupPassword" placeholder="••••••••" required minlength="4" />
+          <input type="password" id="signupPassword" placeholder="ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½" required minlength="4" />
         </div>
 
         <!-- Developer Account Checkbox -->
@@ -138,6 +138,7 @@
           <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
             <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
           </svg>
+          <span class="home-pending-badge hidden" id="homePendingBadge">0</span>
         </button>
       </div>
 
@@ -197,6 +198,16 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
           <span>Add Friend</span>
         </button>
+      </div>
+
+      <!-- Direct Messages Section in Friends Sidebar -->
+      <div class="channel-section mt-15">
+        <div class="channel-section-header">
+          <span class="channel-section-title">DIRECT MESSAGES</span>
+        </div>
+        <div class="dm-friends-list" id="dmSidebarList">
+          <!-- Quick DM friends list -->
+        </div>
       </div>
     </aside>
 
@@ -319,7 +330,7 @@
         <!-- Tab 1: All Friends List -->
         <section class="friends-section" id="viewAllFriends">
           <div class="section-title-bar">
-            <span class="section-title-label">ALL FRIENDS — <span id="allFriendsCountText">0</span></span>
+            <span class="section-title-label">ALL FRIENDS ï¿½ <span id="allFriendsCountText">0</span></span>
           </div>
           <div class="friends-cards-list" id="allFriendsList">
             <!-- Friend cards injected here -->
@@ -329,14 +340,14 @@
         <!-- Tab 2: Pending Requests -->
         <section class="friends-section hidden" id="viewPendingFriends">
           <div class="section-title-bar">
-            <span class="section-title-label">INCOMING REQUESTS — <span id="pendingIncomingCountText">0</span></span>
+            <span class="section-title-label">INCOMING REQUESTS ï¿½ <span id="pendingIncomingCountText">0</span></span>
           </div>
           <div class="friends-cards-list" id="pendingIncomingList">
             <!-- Incoming requests injected here -->
           </div>
 
           <div class="section-title-bar mt-20">
-            <span class="section-title-label">OUTGOING REQUESTS — <span id="pendingOutgoingCountText">0</span></span>
+            <span class="section-title-label">OUTGOING REQUESTS ï¿½ <span id="pendingOutgoingCountText">0</span></span>
           </div>
           <div class="friends-cards-list" id="pendingOutgoingList">
             <!-- Outgoing requests injected here -->
@@ -359,6 +370,76 @@
         </section>
       </main>
     </div>
+
+    <!-- 3C. Direct Message Chat Layout -->
+    <div class="app-layout hidden" id="dmLayout">
+      <!-- Top Bar -->
+      <header class="chat-header">
+        <div class="header-left">
+          <div class="channel-info">
+            <div class="channel-hash">@</div>
+            <div class="channel-name" id="dmActiveFriendName">Friend</div>
+            <span class="dev-badge hidden" id="dmFriendDevBadge">DEV</span>
+            <div class="channel-desc" id="dmActiveFriendUsername">@friend</div>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <div class="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">Direct Message</span>
+          </div>
+
+          <!-- User Profile Capsule -->
+          <div class="user-capsule">
+            <div class="user-avatar" id="currentUserAvatar3">U</div>
+            <div class="user-meta">
+              <div class="user-display-row">
+                <span class="user-name" id="currentUserName3">Loading...</span>
+                <span class="dev-badge hidden" id="currentUserDevBadge3">DEV</span>
+              </div>
+              <span class="user-handle" id="currentUserHandle3">@user</span>
+            </div>
+            <button type="button" class="logout-btn" id="logoutBtn3" title="Log Out">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Message Stream -->
+      <main class="chat-messages" id="dmMessagesContainer">
+        <div class="welcome-banner" id="dmWelcomeBanner">
+          <div class="welcome-hash">@</div>
+          <h2 id="dmWelcomeTitle">Friend Name</h2>
+          <p id="dmWelcomeDesc">This is the start of your direct message history with this friend.</p>
+        </div>
+        <div id="dmMessagesList"></div>
+      </main>
+
+      <!-- Bottom Input Bar -->
+      <footer class="chat-footer">
+        <form id="dmChatForm" class="chat-form" autocomplete="off">
+          <div class="input-wrapper">
+            <input 
+              type="text" 
+              id="dmMessageInput" 
+              placeholder="Message friend... (Press Enter to send)" 
+              maxlength="2000" 
+              autocomplete="off" 
+              required 
+            />
+            <button type="submit" id="dmSendBtn" title="Send message" aria-label="Send">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+      </footer>
+    </div>
   </div>
 
   <!-- Server Shutdown Notification Overlay -->
@@ -370,6 +451,9 @@
       <div class="shutdown-hint">To restart, run <code>start.bat</code> on the host PC and refresh this page.</div>
     </div>
   </div>
+
+  <!-- Notification Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
 
   <script src="app.js"></script>
 </body>

@@ -63,6 +63,17 @@ db.exec(`
     FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_friendships_pair ON friendships(sender_id, receiver_id);
+
+  CREATE TABLE IF NOT EXISTS direct_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_dm_pair ON direct_messages(sender_id, receiver_id);
 `);
 
 // Migrations
@@ -623,6 +634,60 @@ function getRecentMessages(channelId = 1, limit = 50) {
   }));
 }
 
+// Direct Messages Operations
+const insertDirectMessageStmt = db.prepare(`
+  INSERT INTO direct_messages (sender_id, receiver_id, content, timestamp)
+  VALUES (?, ?, ?, ?)
+`);
+
+function saveDirectMessage({ senderId, receiverId, content }) {
+  const sId = Number(senderId);
+  const rId = Number(receiverId);
+  const cleanContent = (content || '').trim().slice(0, 2000);
+  const timestamp = new Date().toISOString();
+
+  const sender = getUserById(sId);
+  const result = insertDirectMessageStmt.run(sId, rId, cleanContent, timestamp);
+
+  return {
+    id: Number(result.lastInsertRowid),
+    senderId: sId,
+    receiverId: rId,
+    authorName: sender ? sender.display_name : 'Unknown',
+    authorUsername: sender ? sender.username : 'user',
+    isDeveloper: sender ? Boolean(sender.is_developer) : false,
+    content: cleanContent,
+    timestamp
+  };
+}
+
+const getDirectMessagesStmt = db.prepare(`
+  SELECT 
+    dm.id,
+    dm.sender_id AS senderId,
+    dm.receiver_id AS receiverId,
+    u.display_name AS authorName,
+    u.username AS authorUsername,
+    u.is_developer AS isDeveloper,
+    dm.content,
+    dm.timestamp
+  FROM direct_messages dm
+  JOIN users u ON dm.sender_id = u.id
+  WHERE (dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)
+  ORDER BY dm.id DESC
+  LIMIT ?
+`);
+
+function getDirectMessagesHistory(userId, friendId, limit = 50) {
+  const uId = Number(userId);
+  const fId = Number(friendId);
+  const rows = getDirectMessagesStmt.all(uId, fId, fId, uId, limit);
+  return rows.reverse().map(r => ({
+    ...r,
+    isDeveloper: Boolean(r.isDeveloper)
+  }));
+}
+
 module.exports = {
   createUser,
   authenticateUser,
@@ -645,6 +710,8 @@ module.exports = {
   getFriendships,
   respondToFriendRequest,
   removeFriend,
+  saveDirectMessage,
+  getDirectMessagesHistory,
   saveMessage,
   getRecentMessages
 };

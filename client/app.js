@@ -93,6 +93,24 @@ const messagesList = document.getElementById('messagesList');
 const welcomeTitle = document.getElementById('welcomeTitle');
 const welcomeDesc = document.getElementById('welcomeDesc');
 const chatForm = document.getElementById('chatForm');
+const homePendingBadge = document.getElementById('homePendingBadge');
+const dmSidebarList = document.getElementById('dmSidebarList');
+const dmLayout = document.getElementById('dmLayout');
+const dmActiveFriendName = document.getElementById('dmActiveFriendName');
+const dmFriendDevBadge = document.getElementById('dmFriendDevBadge');
+const dmActiveFriendUsername = document.getElementById('dmActiveFriendUsername');
+const currentUserAvatar3 = document.getElementById('currentUserAvatar3');
+const currentUserName3 = document.getElementById('currentUserName3');
+const currentUserHandle3 = document.getElementById('currentUserHandle3');
+const currentUserDevBadge3 = document.getElementById('currentUserDevBadge3');
+const logoutBtn3 = document.getElementById('logoutBtn3');
+const dmMessagesContainer = document.getElementById('dmMessagesContainer');
+const dmWelcomeTitle = document.getElementById('dmWelcomeTitle');
+const dmWelcomeDesc = document.getElementById('dmWelcomeDesc');
+const dmMessagesList = document.getElementById('dmMessagesList');
+const dmChatForm = document.getElementById('dmChatForm');
+const dmMessageInput = document.getElementById('dmMessageInput');
+const toastContainer = document.getElementById('toastContainer');
 const messageInput = document.getElementById('messageInput');
 const shutdownNoticeOverlay = document.getElementById('shutdownNoticeOverlay');
 const shutdownNoticeMessage = document.getElementById('shutdownNoticeMessage');
@@ -107,6 +125,7 @@ let activeChannelId = 1;
 let currentView = 'server'; // 'server' or 'friends'
 let currentFriendsTab = 'all'; // 'all', 'pending', 'add'
 let friendsData = { friends: [], pendingIncoming: [], pendingOutgoing: [] };
+let activeDmFriend = null;
 
 let socket = null;
 let reconnectTimer = null;
@@ -264,6 +283,49 @@ function loginSuccess(newToken, user) {
   });
 }
 
+function showToast({ icon = '👋', title, body, actionText, onAction, duration = 6000 }) {
+  if (!toastContainer) return;
+
+  const toast = document.createElement('div');
+  toast.className = 'toast-item';
+
+  const actionBtnHtml = actionText ? `<button type="button" class="toast-action-btn">${escapeHtml(actionText)}</button>` : '';
+
+  toast.innerHTML = `
+    <div class="toast-icon">${icon}</div>
+    <div class="toast-content">
+      <div class="toast-title">${escapeHtml(title)}</div>
+      <div class="toast-body">${escapeHtml(body)}</div>
+    </div>
+    ${actionBtnHtml}
+    <button type="button" class="toast-close-btn" title="Dismiss">&times;</button>
+  `;
+
+  const removeToast = () => {
+    toast.classList.add('removing');
+    setTimeout(() => {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 200);
+  };
+
+  if (actionText && onAction) {
+    const actionBtn = toast.querySelector('.toast-action-btn');
+    if (actionBtn) {
+      actionBtn.addEventListener('click', () => {
+        onAction();
+        removeToast();
+      });
+    }
+  }
+
+  toast.querySelector('.toast-close-btn').addEventListener('click', removeToast);
+  toastContainer.appendChild(toast);
+
+  if (duration > 0) {
+    setTimeout(removeToast, duration);
+  }
+}
+
 function applyUserProfile(user) {
   const dName = user.displayName;
   const handle = `@${user.username}`;
@@ -282,15 +344,24 @@ function applyUserProfile(user) {
     currentUserAvatar2.style.backgroundColor = avatarColor;
   }
 
+  if (currentUserName3) {
+    currentUserName3.textContent = dName;
+    currentUserHandle3.textContent = handle;
+    currentUserAvatar3.textContent = initial;
+    currentUserAvatar3.style.backgroundColor = avatarColor;
+  }
+
   if (user.isDeveloper) {
     currentUserDevBadge.classList.remove('hidden');
     if (currentUserDevBadge2) currentUserDevBadge2.classList.remove('hidden');
+    if (currentUserDevBadge3) currentUserDevBadge3.classList.remove('hidden');
     developerPanel.classList.remove('hidden');
     openCreateServerBtn.classList.remove('hidden');
     openCreateChannelBtn.classList.remove('hidden');
   } else {
     currentUserDevBadge.classList.add('hidden');
     if (currentUserDevBadge2) currentUserDevBadge2.classList.add('hidden');
+    if (currentUserDevBadge3) currentUserDevBadge3.classList.add('hidden');
     developerPanel.classList.add('hidden');
     openCreateServerBtn.classList.add('hidden');
     openCreateChannelBtn.classList.add('hidden');
@@ -322,6 +393,7 @@ function handleLogout() {
 
 logoutBtn.addEventListener('click', handleLogout);
 if (logoutBtn2) logoutBtn2.addEventListener('click', handleLogout);
+if (logoutBtn3) logoutBtn3.addEventListener('click', handleLogout);
 
 // Check session on boot
 async function checkCurrentSession() {
@@ -361,6 +433,7 @@ homeBtn.addEventListener('click', () => {
 
 function switchToFriendsView() {
   currentView = 'friends';
+  activeDmFriend = null;
 
   // Highlight Home button, unhighlight servers
   homeBtn.classList.add('active');
@@ -372,7 +445,10 @@ function switchToFriendsView() {
 
   // Switch Layouts
   chatLayout.classList.add('hidden');
+  dmLayout.classList.add('hidden');
   friendsLayout.classList.remove('hidden');
+
+  document.querySelectorAll('.dm-item').forEach(el => el.classList.remove('active'));
 
   switchFriendsTab(currentFriendsTab);
   loadFriends();
@@ -380,15 +456,89 @@ function switchToFriendsView() {
 
 function switchToServerView(serverId) {
   currentView = 'server';
+  activeDmFriend = null;
 
   homeBtn.classList.remove('active');
   friendsSidebar.classList.add('hidden');
   channelSidebar.classList.remove('hidden');
 
   friendsLayout.classList.add('hidden');
+  dmLayout.classList.add('hidden');
   chatLayout.classList.remove('hidden');
 
   selectServer(serverId);
+}
+
+function switchToDmView(friend) {
+  currentView = 'dm';
+  activeDmFriend = friend;
+
+  // Highlight Home button, unhighlight servers
+  homeBtn.classList.add('active');
+  document.querySelectorAll('.server-item:not(#homeBtn)').forEach(el => el.classList.remove('active'));
+
+  // Keep friends sidebar visible so user can see DM list
+  channelSidebar.classList.add('hidden');
+  friendsSidebar.classList.remove('hidden');
+
+  // Deactivate friends nav buttons
+  friendsNavAllBtn.classList.remove('active');
+  friendsNavPendingBtn.classList.remove('active');
+  friendsNavAddBtn.classList.remove('active');
+
+  // Layouts
+  chatLayout.classList.add('hidden');
+  friendsLayout.classList.add('hidden');
+  dmLayout.classList.remove('hidden');
+
+  // Update header & welcome
+  dmActiveFriendName.textContent = friend.displayName || friend.username;
+  dmActiveFriendUsername.textContent = '@' + friend.username;
+  if (friend.isDeveloper) {
+    dmFriendDevBadge.classList.remove('hidden');
+  } else {
+    dmFriendDevBadge.classList.add('hidden');
+  }
+
+  dmWelcomeTitle.textContent = friend.displayName || friend.username;
+  dmWelcomeDesc.textContent = `This is the start of your direct message history with @${friend.username}.`;
+  dmMessageInput.placeholder = `Message @${friend.username}... (Press Enter to send)`;
+
+  // Update active item in sidebar
+  document.querySelectorAll('.dm-item').forEach(el => {
+    el.classList.toggle('active', Number(el.getAttribute('data-id')) === friend.id);
+  });
+
+  dmMessagesList.innerHTML = '';
+  loadDmHistory(friend.id);
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'join_dm',
+      friendId: friend.id
+    }));
+  }
+
+  dmMessageInput.focus();
+}
+
+async function loadDmHistory(friendId) {
+  if (!token) return;
+  try {
+    const res = await fetch(`/api/dm/${friendId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      dmMessagesList.innerHTML = '';
+      if (Array.isArray(data.messages)) {
+        data.messages.forEach(m => appendDmMessage(m, false));
+        scrollDmToBottom();
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load DM history:', err);
+  }
 }
 
 // ==========================================
@@ -458,8 +608,43 @@ function renderFriendsUI() {
   sidebarPendingCount.textContent = totalPending;
   sidebarPendingCount.classList.toggle('hidden', totalPending === 0);
 
+  if (homePendingBadge) {
+    homePendingBadge.textContent = totalPending;
+    homePendingBadge.classList.toggle('hidden', totalPending === 0);
+  }
+
   pendingIncomingCountText.textContent = pendingIncoming.length;
   pendingOutgoingCountText.textContent = pendingOutgoing.length;
+
+  // Render Direct Messages Sidebar
+  if (dmSidebarList) {
+    dmSidebarList.innerHTML = '';
+    if (friends.length === 0) {
+      dmSidebarList.innerHTML = `<div style="padding: 8px 10px; font-size: 12px; color: var(--text-muted);">No friends yet</div>`;
+    } else {
+      friends.forEach(f => {
+        const item = document.createElement('div');
+        const isActive = currentView === 'dm' && activeDmFriend && activeDmFriend.id === f.id;
+        item.className = 'dm-item' + (isActive ? ' active' : '');
+        item.setAttribute('data-id', f.id);
+        const avatarColor = getColor(f.username);
+        const initial = (f.displayName || f.username).charAt(0).toUpperCase();
+        const devBadgeHtml = f.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+
+        item.innerHTML = `
+          <div class="dm-item-avatar" style="background-color: ${avatarColor}">${escapeHtml(initial)}</div>
+          <span class="dm-item-name">${escapeHtml(f.displayName || f.username)}</span>
+          ${devBadgeHtml}
+        `;
+
+        item.addEventListener('click', () => {
+          switchToDmView(f);
+        });
+
+        dmSidebarList.appendChild(item);
+      });
+    }
+  }
 
   // 1. Render All Friends
   allFriendsList.innerHTML = '';
@@ -485,9 +670,14 @@ function renderFriendsUI() {
           </div>
         </div>
         <div class="friend-actions">
+          <button type="button" class="btn-friend-action btn-message-friend" title="Message Friend">Message</button>
           <button type="button" class="btn-friend-action btn-remove-friend" title="Remove Friend">Remove</button>
         </div>
       `;
+
+      card.querySelector('.btn-message-friend').addEventListener('click', () => {
+        switchToDmView(f);
+      });
 
       card.querySelector('.btn-remove-friend').addEventListener('click', () => {
         handleRemoveFriend(f.id, f.displayName || f.username);
@@ -991,8 +1181,65 @@ function connectWebSocket() {
         if (msg.serverId === activeServerId) {
           loadChannels(activeServerId);
         }
+      } else if (msg.type === 'dm_history') {
+        if (activeDmFriend && msg.friendId === activeDmFriend.id) {
+          dmMessagesList.innerHTML = '';
+          if (Array.isArray(msg.messages)) {
+            msg.messages.forEach(m => appendDmMessage(m, false));
+            scrollDmToBottom();
+          }
+        }
+      } else if (msg.type === 'direct_message') {
+        const dm = msg.data;
+        if (activeDmFriend && (dm.senderId === activeDmFriend.id || dm.receiverId === activeDmFriend.id)) {
+          appendDmMessage(dm, true);
+        } else if (currentUser && dm.senderId !== currentUser.id) {
+          showToast({
+            icon: '💬',
+            title: `New DM from ${dm.authorName}`,
+            body: dm.content,
+            actionText: 'View',
+            onAction: () => {
+              const friend = friendsData.friends.find(f => f.id === dm.senderId) || {
+                id: dm.senderId,
+                displayName: dm.authorName,
+                username: dm.authorUsername,
+                isDeveloper: dm.isDeveloper
+              };
+              switchToDmView(friend);
+            }
+          });
+        }
       } else if (msg.type === 'friends_updated') {
         loadFriends();
+      } else if (msg.type === 'friend_request_notification') {
+        loadFriends();
+        showToast({
+          icon: '👋',
+          title: 'Friend Request Received',
+          body: `@${msg.fromUsername} (${msg.fromDisplayName}) sent you a friend request!`,
+          actionText: 'View Pending',
+          onAction: () => {
+            switchToFriendsView();
+            switchFriendsTab('pending');
+          }
+        });
+      } else if (msg.type === 'friend_request_accepted') {
+        loadFriends();
+        showToast({
+          icon: '🎉',
+          title: 'Friend Request Accepted',
+          body: `You and @${msg.friendUsername} are now friends!`,
+          actionText: 'Say Hi',
+          onAction: () => {
+            const friend = friendsData.friends.find(f => f.id === msg.friendId) || {
+              id: msg.friendId,
+              displayName: msg.friendDisplayName,
+              username: msg.friendUsername
+            };
+            switchToDmView(friend);
+          }
+        });
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -1072,6 +1319,67 @@ chatForm.addEventListener('submit', (e) => {
   messageInput.value = '';
   messageInput.focus();
 });
+
+function appendDmMessage(msg, shouldScroll = true) {
+  const authorName = msg.authorName || 'User';
+  const authorUsername = msg.authorUsername ? `@${msg.authorUsername}` : '';
+  const initial = authorName.charAt(0).toUpperCase();
+  const color = getColor(msg.authorUsername || authorName);
+  const timeFormatted = formatTime(msg.timestamp);
+  const devBadgeHtml = msg.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+
+  const item = document.createElement('div');
+  item.className = 'message-item';
+  item.innerHTML = `
+    <div class="message-avatar" style="background-color: ${color}">${escapeHtml(initial)}</div>
+    <div class="message-body">
+      <div class="message-meta">
+        <span class="message-author">${escapeHtml(authorName)}</span>
+        ${devBadgeHtml}
+        <span class="message-username">${escapeHtml(authorUsername)}</span>
+        <span class="message-time">${escapeHtml(timeFormatted)}</span>
+      </div>
+      <div class="message-text">${escapeHtml(msg.content)}</div>
+    </div>
+  `;
+
+  dmMessagesList.appendChild(item);
+  if (shouldScroll) {
+    scrollDmToBottom();
+  }
+}
+
+function scrollDmToBottom() {
+  dmMessagesContainer.scrollTop = dmMessagesContainer.scrollHeight;
+}
+
+if (dmChatForm) {
+  dmChatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const content = dmMessageInput.value.trim();
+    if (!content || !activeDmFriend) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      alert('Not connected to the chat server. Please ensure the server is running.');
+      return;
+    }
+
+    socket.send(JSON.stringify({
+      type: 'direct_message',
+      friendId: activeDmFriend.id,
+      content: content
+    }));
+
+    dmMessageInput.value = '';
+    dmMessageInput.focus();
+  });
+}
+
+// Lightweight periodic sync fallback (every 4s) to ensure instant updates even on brief WS sleep
+setInterval(() => {
+  if (token && currentUser) {
+    loadFriends();
+  }
+}, 4000);
 
 // Boot check
 checkCurrentSession();
