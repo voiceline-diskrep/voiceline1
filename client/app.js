@@ -20,6 +20,13 @@ const useSuggestionBtn = document.getElementById('useSuggestionBtn');
 // DOM Elements - Server Rail & Modals
 const homeBtn = document.getElementById('homeBtn');
 const serverList = document.getElementById('serverList');
+const openBrowseServersBtn = document.getElementById('openBrowseServersBtn');
+const browseServerModalOverlay = document.getElementById('browseServerModalOverlay');
+const joinServerForm = document.getElementById('joinServerForm');
+const joinServerCodeInput = document.getElementById('joinServerCodeInput');
+const joinServerError = document.getElementById('joinServerError');
+const cancelJoinServerBtn = document.getElementById('cancelJoinServerBtn');
+
 const openCreateServerBtn = document.getElementById('openCreateServerBtn');
 const createServerModalOverlay = document.getElementById('createServerModalOverlay');
 const createServerForm = document.getElementById('createServerForm');
@@ -30,6 +37,10 @@ const cancelCreateServerBtn = document.getElementById('cancelCreateServerBtn');
 // DOM Elements - Channel Sidebar & Modals
 const channelSidebar = document.getElementById('channelSidebar');
 const currentServerTitle = document.getElementById('currentServerTitle');
+const developerServerCodeBadge = document.getElementById('developerServerCodeBadge');
+const displayedJoinCode = document.getElementById('displayedJoinCode');
+const copyServerCodeBtn = document.getElementById('copyServerCodeBtn');
+const regenServerCodeBtn = document.getElementById('regenServerCodeBtn');
 const channelList = document.getElementById('channelList');
 const openCreateChannelBtn = document.getElementById('openCreateChannelBtn');
 const createChannelModalOverlay = document.getElementById('createChannelModalOverlay');
@@ -1177,6 +1188,15 @@ async function selectServer(serverId) {
   const curServer = servers.find(s => s.id === activeServerId) || { name: 'Voiceline' };
   currentServerTitle.textContent = curServer.name;
 
+  if (developerServerCodeBadge) {
+    if (currentUser && currentUser.isDeveloper && curServer.joinCode) {
+      displayedJoinCode.textContent = curServer.joinCode;
+      developerServerCodeBadge.classList.remove('hidden');
+    } else {
+      developerServerCodeBadge.classList.add('hidden');
+    }
+  }
+
   await loadChannels(activeServerId);
 }
 
@@ -1313,6 +1333,138 @@ createServerForm.addEventListener('submit', async (e) => {
     createServerError.textContent = 'Could not contact server.';
   }
 });
+
+// Developer Join Code Actions (Copy & Regenerate)
+if (copyServerCodeBtn) {
+  copyServerCodeBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const curServer = servers.find(s => s.id === activeServerId);
+    if (!curServer || !curServer.joinCode) return;
+
+    try {
+      await navigator.clipboard.writeText(curServer.joinCode);
+      showToast({
+        icon: '📋',
+        title: 'Join Code Copied',
+        body: `Copied join code "${curServer.joinCode}" for ${curServer.name} to clipboard!`,
+        duration: 3000
+      });
+    } catch {
+      prompt('Copy server join code:', curServer.joinCode);
+    }
+  });
+}
+
+if (regenServerCodeBtn) {
+  regenServerCodeBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const curServer = servers.find(s => s.id === activeServerId);
+    if (!curServer) return;
+
+    const confirmRegen = confirm(
+      `Are you sure you want to regenerate the join code for "${curServer.name}"?\n\nThe previous code (${curServer.joinCode || 'none'}) will stop working immediately.`
+    );
+    if (!confirmRegen) return;
+
+    try {
+      const res = await fetch(`/api/servers/${activeServerId}/regen-code`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to regenerate join code.');
+        return;
+      }
+
+      curServer.joinCode = data.joinCode;
+      if (displayedJoinCode) displayedJoinCode.textContent = data.joinCode;
+      showToast({
+        icon: '🔄',
+        title: 'New Join Code Generated',
+        body: `New code for ${curServer.name} is "${data.joinCode}".`,
+        duration: 4000
+      });
+    } catch (err) {
+      alert('Could not contact server to regenerate code.');
+    }
+  });
+}
+
+// Join Server Modal
+if (openBrowseServersBtn) {
+  openBrowseServersBtn.addEventListener('click', () => {
+    browseServerModalOverlay.classList.remove('hidden');
+    joinServerCodeInput.value = '';
+    joinServerError.textContent = '';
+    joinServerCodeInput.focus();
+  });
+}
+
+if (cancelJoinServerBtn) {
+  cancelJoinServerBtn.addEventListener('click', () => {
+    browseServerModalOverlay.classList.add('hidden');
+  });
+}
+
+if (browseServerModalOverlay) {
+  browseServerModalOverlay.addEventListener('click', (e) => {
+    if (e.target === browseServerModalOverlay) {
+      browseServerModalOverlay.classList.add('hidden');
+    }
+  });
+}
+
+if (joinServerCodeInput) {
+  joinServerCodeInput.addEventListener('input', () => {
+    joinServerCodeInput.value = joinServerCodeInput.value.toUpperCase();
+  });
+}
+
+if (joinServerForm) {
+  joinServerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    joinServerError.textContent = '';
+
+    const code = joinServerCodeInput.value.trim().toUpperCase();
+    if (!code) return;
+
+    try {
+      const res = await fetch('/api/servers/join', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ code })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        joinServerError.textContent = data.error || 'Failed to join server.';
+        return;
+      }
+
+      browseServerModalOverlay.classList.add('hidden');
+      await loadServers();
+
+      if (data.server && data.server.id) {
+        switchToServerView(data.server.id);
+      }
+
+      showToast({
+        icon: '🎉',
+        title: data.alreadyMember ? 'Already in Server' : 'Joined Server!',
+        body: data.alreadyMember
+          ? `You are already a member of "${data.server.name}". Opened server.`
+          : `Successfully joined "${data.server.name}"!`,
+        duration: 4000
+      });
+    } catch (err) {
+      joinServerError.textContent = 'Could not reach server.';
+    }
+  });
+}
 
 // Developer Create Channel Modal
 openCreateChannelBtn.addEventListener('click', () => {
@@ -1530,6 +1682,14 @@ function connectWebSocket() {
           dmWelcomeTitle.textContent = activeDmFriend.displayName || activeDmFriend.username;
         }
         loadFriends();
+      } else if (msg.type === 'server_code_updated') {
+        const s = servers.find(srv => srv.id === msg.serverId);
+        if (s) {
+          s.joinCode = msg.joinCode;
+          if (activeServerId === msg.serverId && currentUser && currentUser.isDeveloper && displayedJoinCode) {
+            displayedJoinCode.textContent = msg.joinCode;
+          }
+        }
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {

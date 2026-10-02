@@ -74,6 +74,16 @@ db.exec(`
     FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE
   );
   CREATE INDEX IF NOT EXISTS idx_dm_pair ON direct_messages(sender_id, receiver_id);
+
+  CREATE TABLE IF NOT EXISTS server_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    joined_at TEXT NOT NULL,
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_server_members_pair ON server_members(server_id, user_id);
 `);
 
 // Migrations
@@ -88,16 +98,65 @@ try { db.exec(`UPDATE messages SET author_name = author WHERE author_name IS NUL
 try { db.exec(`UPDATE messages SET author_username = 'anon' WHERE author_username IS NULL;`); } catch {}
 try { db.exec(`UPDATE messages SET server_id = 1 WHERE server_id IS NULL;`); } catch {}
 try { db.exec(`UPDATE messages SET channel_id = 1 WHERE channel_id IS NULL;`); } catch {}
+try { db.exec(`ALTER TABLE servers ADD COLUMN join_code TEXT;`); } catch {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_join_code ON servers(join_code);`); } catch {}
+
+// Join Code Helpers
+const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generateJoinCode() {
+  let code = '';
+  const bytes = crypto.randomBytes(6);
+  for (let i = 0; i < 6; i++) {
+    code += JOIN_CODE_CHARS[bytes[i] % JOIN_CODE_CHARS.length];
+  }
+  return code;
+}
+
+function getUniqueJoinCode() {
+  let code;
+  let attempts = 0;
+  while (attempts < 100) {
+    code = generateJoinCode();
+    const existing = db.prepare(`SELECT id FROM servers WHERE join_code = ?`).get(code);
+    if (!existing) return code;
+    attempts++;
+  }
+  return crypto.randomBytes(3).toString('hex').toUpperCase();
+}
 
 // Ensure default "General" server exists
-const getDefaultServerStmt = db.prepare(`SELECT id, name FROM servers WHERE id = 1`);
-if (!getDefaultServerStmt.get()) {
+const getDefaultServerStmt = db.prepare(`SELECT id, name, join_code FROM servers WHERE id = 1`);
+const defaultServer = getDefaultServerStmt.get();
+if (!defaultServer) {
   const insertDefaultServerStmt = db.prepare(`
-    INSERT INTO servers (id, name, created_by, created_at)
-    VALUES (1, 'General', NULL, ?)
+    INSERT INTO servers (id, name, created_by, created_at, join_code)
+    VALUES (1, 'General', NULL, ?, ?)
   `);
-  insertDefaultServerStmt.run(new Date().toISOString());
+  insertDefaultServerStmt.run(new Date().toISOString(), getUniqueJoinCode());
 }
+
+// Backfill join codes for existing servers that do not have one
+const serversNeedingCode = db.prepare(`SELECT id FROM servers WHERE join_code IS NULL`).all();
+const updateServerCodeMigrationStmt = db.prepare(`UPDATE servers SET join_code = ? WHERE id = ?`);
+for (const s of serversNeedingCode) {
+  updateServerCodeMigrationStmt.run(getUniqueJoinCode(), s.id);
+}
+
+// Backfill server memberships: all existing users belong to Server 1 (General)
+try {
+  db.prepare(`
+    INSERT OR IGNORE INTO server_members (server_id, user_id, joined_at)
+    SELECT 1, id, created_at FROM users
+  `).run();
+} catch {}
+
+// Backfill server creators to their own servers
+try {
+  db.prepare(`
+    INSERT OR IGNORE INTO server_members (server_id, user_id, joined_at)
+    SELECT id, created_by, created_at FROM servers WHERE created_by IS NOT NULL
+  `).run();
+} catch {}
 
 // Ensure every server has at least one default channel: 'general'
 const allServers = db.prepare(`SELECT id FROM servers`).all();
@@ -211,8 +270,10 @@ function createUser({ username, displayName, password, isDeveloper = false }) {
   const devFlag = isDeveloper ? 1 : 0;
 
   const result = insertUserStmt.run(cleanUsername, cleanDisplay, hash, salt, devFlag, createdAt);
+  const userId = Number(result.lastInsertRowid);
+  addServerMemberStmt.run(1, userId, createdAt);
   return {
-    id: Number(result.lastInsertRowid),
+    id: userId,
     username: cleanUsername,
     displayName: cleanDisplay,
     isDeveloper: Boolean(devFlag)
@@ -292,8 +353,18 @@ function deleteSession(token) {
 }
 
 // Server (Chat Room) Operations
+const addServerMemberStmt = db.prepare(`
+  INSERT OR IGNORE INTO server_members (server_id, user_id, joined_at)
+  VALUES (?, ?, ?)
+`);
+
+const isServerMemberStmt = db.prepare(`
+  SELECT id FROM server_members
+  WHERE server_id = ? AND user_id = ?
+`);
+
 const getAllServersStmt = db.prepare(`
-  SELECT id, name, created_by AS createdBy, created_at AS createdAt
+  SELECT id, name, created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
   FROM servers
   ORDER BY id ASC
 `);
@@ -302,8 +373,23 @@ function getAllServers() {
   return getAllServersStmt.all();
 }
 
+const getUserServersStmt = db.prepare(`
+  SELECT s.id, s.name, s.created_by AS createdBy, s.created_at AS createdAt
+  FROM servers s
+  JOIN server_members sm ON s.id = sm.server_id
+  WHERE sm.user_id = ?
+  ORDER BY s.id ASC
+`);
+
+function getUserServers(userId, isDeveloper = false) {
+  if (isDeveloper) {
+    return getAllServersStmt.all();
+  }
+  return getUserServersStmt.all(Number(userId));
+}
+
 const getServerByIdStmt = db.prepare(`
-  SELECT id, name, created_by AS createdBy, created_at AS createdAt
+  SELECT id, name, created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
   FROM servers
   WHERE id = ?
 `);
@@ -324,9 +410,20 @@ function getServerByName(name) {
   return getServerByNameStmt.get(name.trim()) || null;
 }
 
+const getServerByJoinCodeStmt = db.prepare(`
+  SELECT id, name, created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
+  FROM servers
+  WHERE UPPER(join_code) = ?
+`);
+
+function getServerByJoinCode(code) {
+  if (!code) return null;
+  return getServerByJoinCodeStmt.get(code.trim().toUpperCase()) || null;
+}
+
 const insertServerStmt = db.prepare(`
-  INSERT INTO servers (name, created_by, created_at)
-  VALUES (?, ?, ?)
+  INSERT INTO servers (name, created_by, created_at, join_code)
+  VALUES (?, ?, ?, ?)
 `);
 
 function createServer({ name, createdBy }) {
@@ -340,16 +437,76 @@ function createServer({ name, createdBy }) {
   }
 
   const createdAt = new Date().toISOString();
-  const result = insertServerStmt.run(cleanName, createdBy || null, createdAt);
+  const joinCode = getUniqueJoinCode();
+  const result = insertServerStmt.run(cleanName, createdBy || null, createdAt, joinCode);
   const serverId = Number(result.lastInsertRowid);
 
   insertChannelStmt.run(serverId, 'general', createdAt);
+
+  if (createdBy) {
+    addServerMemberStmt.run(serverId, Number(createdBy), createdAt);
+  }
 
   return {
     id: serverId,
     name: cleanName,
     createdBy,
-    createdAt
+    createdAt,
+    joinCode
+  };
+}
+
+function joinServerByCode({ userId, code }) {
+  const cleanCode = (code || '').trim().toUpperCase();
+  if (!cleanCode) {
+    throw new Error('Please enter a server join code.');
+  }
+
+  const server = getServerByJoinCode(cleanCode);
+  if (!server) {
+    throw new Error('No server found with that join code. Please check the code and try again.');
+  }
+
+  const existing = isServerMemberStmt.get(server.id, Number(userId));
+  if (existing) {
+    return {
+      server: {
+        id: server.id,
+        name: server.name,
+        createdBy: server.createdBy,
+        createdAt: server.createdAt
+      },
+      alreadyMember: true
+    };
+  }
+
+  addServerMemberStmt.run(server.id, Number(userId), new Date().toISOString());
+  return {
+    server: {
+      id: server.id,
+      name: server.name,
+      createdBy: server.createdBy,
+      createdAt: server.createdAt
+    },
+    alreadyMember: false
+  };
+}
+
+const updateServerJoinCodeStmt = db.prepare(`
+  UPDATE servers SET join_code = ? WHERE id = ?
+`);
+
+function regenerateServerJoinCode(serverId) {
+  const server = getServerById(serverId);
+  if (!server) {
+    throw new Error('Server not found.');
+  }
+
+  const newCode = getUniqueJoinCode();
+  updateServerJoinCodeStmt.run(newCode, Number(serverId));
+  return {
+    serverId: Number(serverId),
+    joinCode: newCode
   };
 }
 
@@ -743,9 +900,13 @@ module.exports = {
   getUserByToken,
   deleteSession,
   getAllServers,
+  getUserServers,
   getServerById,
   getServerByName,
+  getServerByJoinCode,
   createServer,
+  joinServerByCode,
+  regenerateServerJoinCode,
   getChannelsByServerId,
   getChannelById,
   getChannelByName,

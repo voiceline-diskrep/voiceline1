@@ -103,6 +103,37 @@
     </div>
   </div>
 
+  <!-- Join Server Modal -->
+  <div class="modal-overlay hidden" id="browseServerModalOverlay">
+    <div class="modal-card join-server-modal-card">
+      <div class="modal-header">
+        <h2>Join a Server</h2>
+        <p>Enter a 6-character server join code provided by a developer or friend.</p>
+      </div>
+      <form id="joinServerForm">
+        <div class="form-group">
+          <label for="joinServerCodeInput">SERVER JOIN CODE</label>
+          <input 
+            type="text" 
+            id="joinServerCodeInput" 
+            placeholder="e.g. 7K2M9X" 
+            required 
+            maxlength="8" 
+            autocomplete="off" 
+            spellcheck="false" 
+            class="join-code-input"
+          />
+          <span class="upload-hint">Codes are 6 letters/numbers (not case-sensitive).</span>
+        </div>
+        <div class="auth-error" id="joinServerError"></div>
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" id="cancelJoinServerBtn">Cancel</button>
+          <button type="submit" class="primary-btn" id="submitJoinServerBtn">Join Server</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Create Channel Modal (Developer Only) -->
   <div class="modal-overlay hidden" id="createChannelModalOverlay">
     <div class="modal-card">
@@ -212,6 +243,13 @@
       <div class="server-list" id="serverList"></div>
 
       <div class="rail-divider"></div>
+      <!-- Browse / Join Server Button (All Users) -->
+      <button type="button" class="browse-server-btn" id="openBrowseServersBtn" title="Join a Server">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1.5-6.5l-1.5 4.5 4.5-1.5 1.5-4.5-4.5 1.5z"/>
+        </svg>
+      </button>
+
       <!-- Add Server Button (Developer Only) -->
       <button type="button" class="add-server-btn hidden" id="openCreateServerBtn" title="Create a Server">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
@@ -224,6 +262,20 @@
     <aside class="channel-sidebar" id="channelSidebar">
       <div class="server-banner">
         <h2 class="server-title-text" id="currentServerTitle">Voiceline</h2>
+        <div class="server-code-badge hidden" id="developerServerCodeBadge" title="Server Join Code">
+          <span class="code-badge-label">JOIN CODE:</span>
+          <span class="code-badge-value" id="displayedJoinCode">------</span>
+          <button type="button" class="code-action-btn" id="copyServerCodeBtn" title="Copy join code">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+              <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
+          </button>
+          <button type="button" class="code-action-btn" id="regenServerCodeBtn" title="Regenerate join code">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+              <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div class="channel-section">

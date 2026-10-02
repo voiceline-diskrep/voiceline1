@@ -156,14 +156,14 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { success: true });
       }
 
-      // GET /api/servers (List all servers)
+      // GET /api/servers (List user servers, or all servers if developer)
       if (req.method === 'GET' && pathname === '/api/servers') {
         const token = getTokenFromReq(req);
         const user = db.getUserByToken(token);
         if (!user) {
           return sendJson(res, 401, { error: 'Not authenticated' });
         }
-        const servers = db.getAllServers();
+        const servers = db.getUserServers(user.id, user.isDeveloper);
         return sendJson(res, 200, { servers });
       }
 
@@ -180,9 +180,50 @@ const server = http.createServer(async (req, res) => {
           const newServer = db.createServer({ name, createdBy: user.id });
           broadcastAll({
             type: 'server_created',
-            server: newServer
+            server: { id: newServer.id, name: newServer.name }
           });
           return sendJson(res, 200, { success: true, server: newServer });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // POST /api/servers/join (Join a server via 6-character code)
+      if (req.method === 'POST' && pathname === '/api/servers/join') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const { code } = await readJsonBody(req);
+        try {
+          const result = db.joinServerByCode({ userId: user.id, code });
+          return sendJson(res, 200, { success: true, ...result });
+        } catch (err) {
+          const status = err.message.includes('No server found') ? 404 : 400;
+          return sendJson(res, status, { error: err.message });
+        }
+      }
+
+      // POST /api/servers/:serverId/regen-code (Regenerate server join code - Developer only)
+      const regenCodeMatch = pathname.match(/^\/api\/servers\/(\d+)\/regen-code$/);
+      if (req.method === 'POST' && regenCodeMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can regenerate server join codes.' });
+        }
+
+        const serverId = Number(regenCodeMatch[1]);
+        try {
+          const result = db.regenerateServerJoinCode(serverId);
+          broadcastAll({
+            type: 'server_code_updated',
+            serverId: result.serverId,
+            joinCode: result.joinCode
+          });
+          return sendJson(res, 200, { success: true, ...result });
         } catch (err) {
           return sendJson(res, 400, { error: err.message });
         }
