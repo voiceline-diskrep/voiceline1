@@ -401,15 +401,28 @@
 
       <!-- Bottom Input Bar -->
       <footer class="chat-footer">
+        <div class="pending-attachment-bar hidden" id="pendingAttachmentBar">
+          <div class="pending-attachment-pill">
+            <span class="pending-file-icon">📎</span>
+            <span class="pending-file-name" id="pendingFileName">file.png</span>
+            <span class="pending-file-size" id="pendingFileSize">(0 B)</span>
+            <button type="button" class="remove-attachment-btn" id="removeAttachmentBtn" title="Remove file">✕</button>
+          </div>
+        </div>
         <form id="chatForm" class="chat-form" autocomplete="off">
           <div class="input-wrapper">
+            <button type="button" class="attach-file-btn" id="attachFileBtn" title="Attach file (Max 100MB)">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5V6H9v9.5a3 3 0 0 0 6 0V5C15 2.24 12.76 0 10 0S5 2.24 5 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
+              </svg>
+            </button>
+            <input type="file" id="fileInput" class="hidden" />
             <input 
               type="text" 
               id="messageInput" 
               placeholder="Message #general... (Press Enter to send)" 
               maxlength="2000" 
               autocomplete="off" 
-              required 
             />
             <button type="submit" id="sendBtn" title="Send message" aria-label="Send">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -555,15 +568,28 @@
 
       <!-- Bottom Input Bar -->
       <footer class="chat-footer">
+        <div class="pending-attachment-bar hidden" id="dmPendingAttachmentBar">
+          <div class="pending-attachment-pill">
+            <span class="pending-file-icon">📎</span>
+            <span class="pending-file-name" id="dmPendingFileName">file.png</span>
+            <span class="pending-file-size" id="dmPendingFileSize">(0 B)</span>
+            <button type="button" class="remove-attachment-btn" id="dmRemoveAttachmentBtn" title="Remove file">✕</button>
+          </div>
+        </div>
         <form id="dmChatForm" class="chat-form" autocomplete="off">
           <div class="input-wrapper">
+            <button type="button" class="attach-file-btn" id="dmAttachFileBtn" title="Attach file (Max 100MB)">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5V6H9v9.5a3 3 0 0 0 6 0V5C15 2.24 12.76 0 10 0S5 2.24 5 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
+              </svg>
+            </button>
+            <input type="file" id="dmFileInput" class="hidden" />
             <input 
               type="text" 
               id="dmMessageInput" 
               placeholder="Message friend... (Press Enter to send)" 
               maxlength="2000" 
               autocomplete="off" 
-              required 
             />
             <button type="submit" id="dmSendBtn" title="Send message" aria-label="Send">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -576,10 +602,68 @@
     </div>
   </div>
 
+  <!-- Pre-Shutdown Storage Check Modal (Developer Only) -->
+  <div class="modal-overlay hidden" id="shutdownConfirmModalOverlay">
+    <div class="modal-card storage-modal-card">
+      <div class="modal-header">
+        <h2>Confirm Server Shutdown</h2>
+        <p>Review current storage breakdown before turning off the host server.</p>
+      </div>
+      <div class="storage-stats-container">
+        <div class="storage-stats-loading" id="shutdownStorageLoading">
+          <div class="spinner"></div>
+          <span>Calculating host storage usage...</span>
+        </div>
+        <div class="storage-breakdown hidden" id="shutdownStorageBreakdown">
+          <div class="storage-stat-card">
+            <div class="storage-stat-header">
+              <div class="storage-stat-title-wrap">
+                <span class="storage-stat-icon">🗄️</span>
+                <div>
+                  <div class="storage-stat-title">Database Storage</div>
+                  <div class="storage-stat-sub">SQLite database file (voiceline.db)</div>
+                </div>
+              </div>
+              <span class="storage-stat-val" id="storageDbSize">--</span>
+            </div>
+          </div>
+
+          <div class="storage-stat-card">
+            <div class="storage-stat-header">
+              <div class="storage-stat-title-wrap">
+                <span class="storage-stat-icon">📁</span>
+                <div>
+                  <div class="storage-stat-title">Uploaded Files & Media</div>
+                  <div class="storage-stat-sub">Attachments & user profile pictures</div>
+                </div>
+              </div>
+              <span class="storage-stat-val" id="storageUploadsSize">--</span>
+            </div>
+          </div>
+
+          <div class="storage-total-card">
+            <div class="storage-total-label">
+              <span class="storage-stat-icon">💾</span>
+              <div>
+                <div class="storage-total-title">Total Disk Storage Used</div>
+                <div class="storage-total-sub">Combined footprint on host PC</div>
+              </div>
+            </div>
+            <div class="storage-total-val" id="storageTotalSize">--</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions mt-20">
+        <button type="button" class="secondary-btn" id="cancelShutdownBtn">Cancel</button>
+        <button type="button" class="danger-btn shutdown-confirm-btn" id="confirmShutdownBtn">Turn Off Server</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Server Shutdown Notification Overlay -->
   <div class="shutdown-modal-overlay hidden" id="shutdownNoticeOverlay">
     <div class="shutdown-modal">
-      <div class="shutdown-icon">??</div>
+      <div class="shutdown-icon">🛑</div>
       <h2>Server Has Been Stopped</h2>
       <p id="shutdownNoticeMessage">The host turned off the server. All chat history has been safely recorded in SQLite.</p>
       <div class="shutdown-hint">To restart, run <code>start.bat</code> on the host PC and refresh this page.</div>

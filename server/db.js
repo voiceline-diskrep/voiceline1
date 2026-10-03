@@ -1,6 +1,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const crypto = require('node:crypto');
 const path = require('path');
+const fs = require('fs');
 
 const dbPath = process.env.VOICELINE_DB_PATH || path.join(__dirname, '..', 'voiceline.db');
 const db = new DatabaseSync(dbPath);
@@ -101,6 +102,17 @@ try { db.exec(`UPDATE messages SET server_id = 1 WHERE server_id IS NULL;`); } c
 try { db.exec(`UPDATE messages SET channel_id = 1 WHERE channel_id IS NULL;`); } catch {}
 try { db.exec(`ALTER TABLE servers ADD COLUMN join_code TEXT;`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_join_code ON servers(join_code);`); } catch {}
+
+// Stage 3a-1: File attachments
+try { db.exec(`ALTER TABLE messages ADD COLUMN file_url TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN file_name TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN file_size INTEGER DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN file_type TEXT DEFAULT NULL;`); } catch {}
+
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_url TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_name TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_size INTEGER DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_type TEXT DEFAULT NULL;`); } catch {}
 
 // Join Code Helpers
 const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -811,11 +823,11 @@ function removeFriend(userId, friendUserId) {
 
 // Message Operations
 const insertMessageStmt = db.prepare(`
-  INSERT INTO messages (server_id, channel_id, author, author_id, author_name, author_username, is_developer, content, timestamp)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO messages (server_id, channel_id, author, author_id, author_name, author_username, is_developer, content, timestamp, file_url, file_name, file_size, file_type)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, authorUsername, isDeveloper, content }) {
+function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, authorUsername, isDeveloper, content, fileUrl = null, fileName = null, fileSize = null, fileType = null }) {
   const cleanName = (authorName || 'Anonymous').trim().slice(0, 32);
   const cleanUsername = (authorUsername || 'anon').trim().slice(0, 32);
   const cleanContent = (content || '').trim().slice(0, 2000);
@@ -824,7 +836,10 @@ function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, author
   const sId = Number(serverId) || 1;
   const cId = Number(channelId) || 1;
 
-  const result = insertMessageStmt.run(sId, cId, cleanName, authorId || null, cleanName, cleanUsername, devFlag, cleanContent, timestamp);
+  const result = insertMessageStmt.run(
+    sId, cId, cleanName, authorId || null, cleanName, cleanUsername, devFlag, cleanContent, timestamp,
+    fileUrl || null, fileName || null, fileSize ? Number(fileSize) : null, fileType || null
+  );
   const sender = authorId ? getUserById(authorId) : null;
   return {
     id: Number(result.lastInsertRowid),
@@ -836,7 +851,11 @@ function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, author
     authorAvatarUrl: sender ? sender.avatarUrl : null,
     isDeveloper: sender ? Boolean(sender.isDeveloper) : Boolean(devFlag),
     content: cleanContent,
-    timestamp
+    timestamp,
+    fileUrl: fileUrl || null,
+    fileName: fileName || null,
+    fileSize: fileSize ? Number(fileSize) : null,
+    fileType: fileType || null
   };
 }
 
@@ -846,7 +865,8 @@ const getHistoryByChannelStmt = db.prepare(`
          COALESCE(u.username, m.author_username, 'anon') AS authorUsername, 
          u.avatar_url AS authorAvatarUrl,
          COALESCE(u.is_developer, m.is_developer, 0) AS isDeveloper, 
-         m.content, m.timestamp
+         m.content, m.timestamp,
+         m.file_url AS fileUrl, m.file_name AS fileName, m.file_size AS fileSize, m.file_type AS fileType
   FROM messages m
   LEFT JOIN users u ON m.author_id = u.id
   WHERE m.channel_id = ?
@@ -865,18 +885,21 @@ function getRecentMessages(channelId = 1, limit = 50) {
 
 // Direct Messages Operations
 const insertDirectMessageStmt = db.prepare(`
-  INSERT INTO direct_messages (sender_id, receiver_id, content, timestamp)
-  VALUES (?, ?, ?, ?)
+  INSERT INTO direct_messages (sender_id, receiver_id, content, timestamp, file_url, file_name, file_size, file_type)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-function saveDirectMessage({ senderId, receiverId, content }) {
+function saveDirectMessage({ senderId, receiverId, content, fileUrl = null, fileName = null, fileSize = null, fileType = null }) {
   const sId = Number(senderId);
   const rId = Number(receiverId);
   const cleanContent = (content || '').trim().slice(0, 2000);
   const timestamp = new Date().toISOString();
 
   const sender = getUserById(sId);
-  const result = insertDirectMessageStmt.run(sId, rId, cleanContent, timestamp);
+  const result = insertDirectMessageStmt.run(
+    sId, rId, cleanContent, timestamp,
+    fileUrl || null, fileName || null, fileSize ? Number(fileSize) : null, fileType || null
+  );
 
   return {
     id: Number(result.lastInsertRowid),
@@ -888,7 +911,11 @@ function saveDirectMessage({ senderId, receiverId, content }) {
     authorAvatarUrl: sender ? sender.avatarUrl : null,
     isDeveloper: sender ? Boolean(sender.isDeveloper) : false,
     content: cleanContent,
-    timestamp
+    timestamp,
+    fileUrl: fileUrl || null,
+    fileName: fileName || null,
+    fileSize: fileSize ? Number(fileSize) : null,
+    fileType: fileType || null
   };
 }
 
@@ -903,7 +930,11 @@ const getDirectMessagesStmt = db.prepare(`
     u.avatar_url AS authorAvatarUrl,
     u.is_developer AS isDeveloper,
     dm.content,
-    dm.timestamp
+    dm.timestamp,
+    dm.file_url AS fileUrl,
+    dm.file_name AS fileName,
+    dm.file_size AS fileSize,
+    dm.file_type AS fileType
   FROM direct_messages dm
   JOIN users u ON dm.sender_id = u.id
   WHERE (dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)
@@ -965,6 +996,56 @@ function getMutualServers(userId1, userId2) {
   return getMutualServersStmt.all(u1, u2);
 }
 
+// Storage Statistics (Pre-Shutdown Check)
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function getDirectorySize(dirPath) {
+  let total = 0;
+  if (!fs.existsSync(dirPath)) return 0;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        total += getDirectorySize(fullPath);
+      } else if (entry.isFile()) {
+        try {
+          total += fs.statSync(fullPath).size;
+        } catch {}
+      }
+    }
+  } catch {}
+  return total;
+}
+
+function getStorageStats(uploadsDir) {
+  let dbBytes = 0;
+  try {
+    if (fs.existsSync(dbPath)) {
+      dbBytes = fs.statSync(dbPath).size;
+    }
+  } catch {}
+
+  const upDir = uploadsDir || path.join(__dirname, '..', 'uploads');
+  const uploadsBytes = getDirectorySize(upDir);
+  const totalBytes = dbBytes + uploadsBytes;
+
+  return {
+    databaseBytes: dbBytes,
+    databaseFormatted: formatBytes(dbBytes),
+    uploadsBytes: uploadsBytes,
+    uploadsFormatted: formatBytes(uploadsBytes),
+    totalBytes: totalBytes,
+    totalFormatted: formatBytes(totalBytes)
+  };
+}
+
 module.exports = {
   createUser,
   authenticateUser,
@@ -999,5 +1080,7 @@ module.exports = {
   getMutualFriends,
   getMutualServers,
   saveMessage,
-  getRecentMessages
+  getRecentMessages,
+  getStorageStats,
+  formatBytes
 };

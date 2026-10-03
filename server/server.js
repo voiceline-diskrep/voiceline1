@@ -30,9 +30,12 @@ const DEV_PASSWORD = process.env.DEV_PASSWORD || 'admin123';
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
+const ATTACHMENTS_DIR = path.join(UPLOADS_DIR, 'attachments');
 
 try {
   fs.mkdirSync(AVATARS_DIR, { recursive: true });
+  fs.mkdirSync(path.join(ATTACHMENTS_DIR, 'servers'), { recursive: true });
+  fs.mkdirSync(path.join(ATTACHMENTS_DIR, 'dms'), { recursive: true });
 } catch {}
 
 const MIME_TYPES = {
@@ -46,8 +49,22 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.gif': 'image/gif',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf',
+  '.zip': 'application/zip',
+  '.txt': 'text/plain; charset=utf-8',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm'
 };
+
+function isImageMime(mime, filename) {
+  if (mime && mime.startsWith('image/')) return true;
+  const ext = path.extname(filename || '').toLowerCase();
+  return ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'].includes(ext);
+}
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -94,6 +111,120 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname.startsWith('/api/')) {
     try {
+      // POST /api/upload (Stream file upload up to 100MB)
+      if (req.method === 'POST' && pathname === '/api/upload') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const MAX_BYTES = 100 * 1024 * 1024; // 100MB limit
+        const contentLength = Number(req.headers['content-length']);
+        if (contentLength && contentLength > MAX_BYTES) {
+          return sendJson(res, 413, { error: 'File size exceeds maximum allowed limit of 100MB.' });
+        }
+
+        const serverId = req.headers['x-server-id'] ? Number(req.headers['x-server-id']) : null;
+        const channelId = req.headers['x-channel-id'] ? Number(req.headers['x-channel-id']) : null;
+        const dmFriendId = req.headers['x-dm-friend-id'] ? Number(req.headers['x-dm-friend-id']) : null;
+
+        let targetDir = '';
+        let urlPrefix = '';
+
+        if (serverId && channelId) {
+          if (!db.canAccessServer(user, serverId)) {
+            return sendJson(res, 403, { error: 'You are not a member of this server.' });
+          }
+          const channel = db.getChannelById(channelId);
+          if (!channel || channel.serverId !== serverId) {
+            return sendJson(res, 404, { error: 'Channel not found in this server.' });
+          }
+          targetDir = path.join(ATTACHMENTS_DIR, 'servers', `server_${serverId}`, `channel_${channelId}`);
+          urlPrefix = `/uploads/attachments/servers/server_${serverId}/channel_${channelId}`;
+        } else if (dmFriendId) {
+          const friend = db.getUserById(dmFriendId);
+          if (!friend) {
+            return sendJson(res, 404, { error: 'User not found.' });
+          }
+          targetDir = path.join(ATTACHMENTS_DIR, 'dms');
+          urlPrefix = `/uploads/attachments/dms`;
+        } else {
+          return sendJson(res, 400, { error: 'Missing destination (server/channel or DM friend).' });
+        }
+
+        try {
+          fs.mkdirSync(targetDir, { recursive: true });
+        } catch {}
+
+        let rawFileName = req.headers['x-file-name'] || 'attachment';
+        try {
+          rawFileName = decodeURIComponent(rawFileName);
+        } catch {}
+        const safeBaseName = path.basename(rawFileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const uniquePrefix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const diskFileName = `${uniquePrefix}_${safeBaseName}`;
+        const filePath = path.join(targetDir, diskFileName);
+
+        const writeStream = fs.createWriteStream(filePath);
+        let bytesWritten = 0;
+        let isAborted = false;
+
+        req.on('data', chunk => {
+          if (isAborted) return;
+          bytesWritten += chunk.length;
+          if (bytesWritten > MAX_BYTES) {
+            isAborted = true;
+            req.destroy();
+            writeStream.destroy();
+            try {
+              if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            } catch {}
+            if (!res.headersSent) {
+              sendJson(res, 413, { error: 'File size exceeds maximum allowed limit of 100MB.' });
+            }
+          }
+        });
+
+        req.on('error', err => {
+          if (isAborted) return;
+          isAborted = true;
+          writeStream.destroy();
+          try {
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          } catch {}
+          if (!res.headersSent) {
+            sendJson(res, 500, { error: 'Upload failed: ' + err.message });
+          }
+        });
+
+        writeStream.on('finish', () => {
+          if (isAborted) return;
+          const mimeType = req.headers['content-type'] || 'application/octet-stream';
+          const fileData = {
+            url: `${urlPrefix}/${diskFileName}`,
+            name: rawFileName,
+            size: bytesWritten,
+            type: mimeType
+          };
+          return sendJson(res, 200, { success: true, file: fileData });
+        });
+
+        writeStream.on('error', err => {
+          if (isAborted) return;
+          isAborted = true;
+          try {
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          } catch {}
+          if (!res.headersSent) {
+            sendJson(res, 500, { error: 'File save failed: ' + err.message });
+          }
+        });
+
+        req.pipe(writeStream);
+        return;
+      }
+
       // POST /api/signup
       if (req.method === 'POST' && pathname === '/api/signup') {
         const { username, displayName, password, isDeveloper, devPassword } = await readJsonBody(req);
@@ -530,6 +661,18 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      // GET /api/server/storage-stats (Developer only)
+      if (req.method === 'GET' && pathname === '/api/server/storage-stats') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can view storage stats.' });
+        }
+
+        const stats = db.getStorageStats(UPLOADS_DIR);
+        return sendJson(res, 200, { success: true, stats });
+      }
+
       // POST /api/server/shutdown (Developer only)
       if (req.method === 'POST' && pathname === '/api/server/shutdown') {
         const token = getTokenFromReq(req);
@@ -755,7 +898,8 @@ wss.on('connection', (ws, req) => {
       // New chat message
       if (parsed.type === 'chat') {
         const content = (parsed.content || '').trim();
-        if (!content) return;
+        const file = parsed.file && typeof parsed.file === 'object' ? parsed.file : null;
+        if (!content && !file) return;
 
         const serverId = ws.currentServerId;
         const channelId = ws.currentChannelId;
@@ -780,7 +924,11 @@ wss.on('connection', (ws, req) => {
           authorName: ws.user.displayName,
           authorUsername: ws.user.username,
           isDeveloper: ws.user.isDeveloper,
-          content: content
+          content: content,
+          fileUrl: file?.url || null,
+          fileName: file?.name || null,
+          fileSize: file?.size || null,
+          fileType: file?.type || null
         });
 
         broadcastToChannel(channelId, serverId, {
@@ -802,12 +950,17 @@ wss.on('connection', (ws, req) => {
       } else if (parsed.type === 'direct_message') {
         const friendId = Number(parsed.friendId);
         const content = (parsed.content || '').trim();
-        if (!friendId || !content) return;
+        const file = parsed.file && typeof parsed.file === 'object' ? parsed.file : null;
+        if (!friendId || (!content && !file)) return;
 
         const savedMessage = db.saveDirectMessage({
           senderId: ws.user.id,
           receiverId: friendId,
-          content: content
+          content: content,
+          fileUrl: file?.url || null,
+          fileName: file?.name || null,
+          fileSize: file?.size || null,
+          fileType: file?.type || null
         });
 
         broadcastToUsers([ws.user.id, friendId], {

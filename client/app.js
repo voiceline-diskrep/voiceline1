@@ -126,6 +126,30 @@ const messageInput = document.getElementById('messageInput');
 const shutdownNoticeOverlay = document.getElementById('shutdownNoticeOverlay');
 const shutdownNoticeMessage = document.getElementById('shutdownNoticeMessage');
 
+// DOM Elements - Attachments & Pre-Shutdown Storage Check
+const attachFileBtn = document.getElementById('attachFileBtn');
+const fileInput = document.getElementById('fileInput');
+const pendingAttachmentBar = document.getElementById('pendingAttachmentBar');
+const pendingFileName = document.getElementById('pendingFileName');
+const pendingFileSize = document.getElementById('pendingFileSize');
+const removeAttachmentBtn = document.getElementById('removeAttachmentBtn');
+
+const dmAttachFileBtn = document.getElementById('dmAttachFileBtn');
+const dmFileInput = document.getElementById('dmFileInput');
+const dmPendingAttachmentBar = document.getElementById('dmPendingAttachmentBar');
+const dmPendingFileName = document.getElementById('dmPendingFileName');
+const dmPendingFileSize = document.getElementById('dmPendingFileSize');
+const dmRemoveAttachmentBtn = document.getElementById('dmRemoveAttachmentBtn');
+
+const shutdownConfirmModalOverlay = document.getElementById('shutdownConfirmModalOverlay');
+const shutdownStorageLoading = document.getElementById('shutdownStorageLoading');
+const shutdownStorageBreakdown = document.getElementById('shutdownStorageBreakdown');
+const storageDbSize = document.getElementById('storageDbSize');
+const storageUploadsSize = document.getElementById('storageUploadsSize');
+const storageTotalSize = document.getElementById('storageTotalSize');
+const cancelShutdownBtn = document.getElementById('cancelShutdownBtn');
+const confirmShutdownBtn = document.getElementById('confirmShutdownBtn');
+
 const dmHeaderFriendInfo = document.getElementById('dmHeaderFriendInfo');
 const dmHeaderAvatar = document.getElementById('dmHeaderAvatar');
 const dmUserCapsule = document.getElementById('dmUserCapsule');
@@ -171,6 +195,10 @@ let activeDmFriend = null;
 let pendingAvatarBase64 = null;
 let pendingRemoveAvatar = false;
 let viewedUserProfile = null;
+
+let pendingChannelFile = null;
+let pendingDmFile = null;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
 
 let socket = null;
 let reconnectTimer = null;
@@ -229,6 +257,85 @@ function formatTime(isoString) {
   } catch {
     return '';
   }
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function isImageFile(type, filename) {
+  if (type && type.startsWith('image/')) return true;
+  const ext = (filename || '').split('.').pop().toLowerCase();
+  return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext);
+}
+
+function renderAttachmentHtml(msg) {
+  if (!msg.fileUrl) return '';
+
+  const isImg = isImageFile(msg.fileType, msg.fileName);
+  if (isImg) {
+    return `
+      <div class="message-attachment-wrap">
+        <div class="message-attachment-image-wrap">
+          <a href="${escapeHtml(msg.fileUrl)}" target="_blank" rel="noopener noreferrer">
+            <img class="message-attachment-image" src="${escapeHtml(msg.fileUrl)}" alt="${escapeHtml(msg.fileName || 'Attachment')}" loading="lazy" />
+          </a>
+        </div>
+      </div>
+    `;
+  }
+
+  const safeFileName = escapeHtml(msg.fileName || 'Attachment');
+  const sizeFormatted = msg.fileSize ? formatBytes(msg.fileSize) : '';
+  return `
+    <div class="message-attachment-wrap">
+      <div class="message-file-card">
+        <div class="message-file-icon">📄</div>
+        <div class="message-file-info">
+          <a class="message-file-name" href="${escapeHtml(msg.fileUrl)}" download="${safeFileName}" target="_blank" rel="noopener noreferrer">
+            ${safeFileName}
+          </a>
+          <span class="message-file-size">${escapeHtml(sizeFormatted)}</span>
+        </div>
+        <a class="message-file-download-btn" href="${escapeHtml(msg.fileUrl)}" download="${safeFileName}" title="Download">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+async function uploadFileStream(file, { serverId, channelId, dmFriendId }) {
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'X-File-Name': encodeURIComponent(file.name),
+    'Content-Type': file.type || 'application/octet-stream'
+  };
+
+  if (serverId && channelId) {
+    headers['X-Server-Id'] = String(serverId);
+    headers['X-Channel-Id'] = String(channelId);
+  } else if (dmFriendId) {
+    headers['X-Dm-Friend-Id'] = String(dmFriendId);
+  }
+
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    headers,
+    body: file
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to upload file');
+  }
+  return data.file;
 }
 
 function getServerInitials(name) {
@@ -1637,27 +1744,75 @@ async function handleDeleteChannel(channelId, channelName) {
   }
 }
 
-// Developer Server Shutdown
+// Developer Server Shutdown - Pre-Shutdown Storage Check Modal
 shutdownServerBtn.addEventListener('click', async () => {
-  const confirmShutdown = confirm(
-    'Are you sure you want to turn off the server?\n\nThis will disconnect all users and save everything to SQLite.'
-  );
+  if (!shutdownConfirmModalOverlay) return;
 
-  if (!confirmShutdown) return;
+  shutdownConfirmModalOverlay.classList.remove('hidden');
+  shutdownStorageLoading.classList.remove('hidden');
+  shutdownStorageBreakdown.classList.add('hidden');
+  confirmShutdownBtn.disabled = true;
 
   try {
-    const res = await fetch('/api/server/shutdown', {
-      method: 'POST',
+    const res = await fetch('/api/server/storage-stats', {
       headers: { 'Authorization': `Bearer ${token}` }
     });
+    const data = await res.json();
     if (!res.ok) {
-      const data = await res.json();
-      alert('Error: ' + (data.error || 'Failed to shut down server.'));
+      alert(data.error || 'Failed to fetch storage stats');
+      shutdownConfirmModalOverlay.classList.add('hidden');
+      return;
     }
+
+    const { stats } = data;
+    storageDbSize.textContent = stats.databaseFormatted;
+    storageUploadsSize.textContent = stats.uploadsFormatted;
+    storageTotalSize.textContent = stats.totalFormatted;
+
+    shutdownStorageLoading.classList.add('hidden');
+    shutdownStorageBreakdown.classList.remove('hidden');
+    confirmShutdownBtn.disabled = false;
   } catch (err) {
-    console.error('Shutdown request sent.');
+    alert('Could not retrieve storage statistics: ' + err.message);
+    shutdownConfirmModalOverlay.classList.add('hidden');
   }
 });
+
+if (cancelShutdownBtn) {
+  cancelShutdownBtn.addEventListener('click', () => {
+    shutdownConfirmModalOverlay.classList.add('hidden');
+  });
+}
+
+if (shutdownConfirmModalOverlay) {
+  shutdownConfirmModalOverlay.addEventListener('click', (e) => {
+    if (e.target === shutdownConfirmModalOverlay) {
+      shutdownConfirmModalOverlay.classList.add('hidden');
+    }
+  });
+}
+
+if (confirmShutdownBtn) {
+  confirmShutdownBtn.addEventListener('click', async () => {
+    confirmShutdownBtn.disabled = true;
+    confirmShutdownBtn.textContent = 'Stopping...';
+
+    try {
+      const res = await fetch('/api/server/shutdown', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert('Error: ' + (data.error || 'Failed to shut down server.'));
+        confirmShutdownBtn.disabled = false;
+        confirmShutdownBtn.textContent = 'Turn Off Server';
+      }
+    } catch (err) {
+      console.log('Shutdown initiated.');
+    }
+  });
+}
 
 // ==========================================
 // WEBSOCKET & LIVE CHAT
@@ -1823,6 +1978,70 @@ function connectWebSocket() {
   };
 }
 
+// File Attachment Event Listeners - Channel Chat
+if (attachFileBtn && fileInput) {
+  attachFileBtn.addEventListener('click', () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`File "${file.name}" is too large (${formatBytes(file.size)}).\n\nMaximum allowed file size is 100MB.`);
+      fileInput.value = '';
+      return;
+    }
+
+    pendingChannelFile = file;
+    pendingFileName.textContent = file.name;
+    pendingFileSize.textContent = `(${formatBytes(file.size)})`;
+    pendingAttachmentBar.classList.remove('hidden');
+    messageInput.focus();
+  });
+}
+
+if (removeAttachmentBtn) {
+  removeAttachmentBtn.addEventListener('click', () => {
+    pendingChannelFile = null;
+    if (fileInput) fileInput.value = '';
+    pendingAttachmentBar.classList.add('hidden');
+  });
+}
+
+// File Attachment Event Listeners - DM Chat
+if (dmAttachFileBtn && dmFileInput) {
+  dmAttachFileBtn.addEventListener('click', () => {
+    dmFileInput.click();
+  });
+
+  dmFileInput.addEventListener('change', () => {
+    const file = dmFileInput.files[0];
+    if (!file) return;
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`File "${file.name}" is too large (${formatBytes(file.size)}).\n\nMaximum allowed file size is 100MB.`);
+      dmFileInput.value = '';
+      return;
+    }
+
+    pendingDmFile = file;
+    dmPendingFileName.textContent = file.name;
+    dmPendingFileSize.textContent = `(${formatBytes(file.size)})`;
+    dmPendingAttachmentBar.classList.remove('hidden');
+    dmMessageInput.focus();
+  });
+}
+
+if (dmRemoveAttachmentBtn) {
+  dmRemoveAttachmentBtn.addEventListener('click', () => {
+    pendingDmFile = null;
+    if (dmFileInput) dmFileInput.value = '';
+    dmPendingAttachmentBar.classList.add('hidden');
+  });
+}
+
 function appendMessage(msg, shouldScroll = true) {
   const authorName = msg.authorName || 'Anonymous';
   const authorUsername = msg.authorUsername ? `@${msg.authorUsername}` : '';
@@ -1836,6 +2055,9 @@ function appendMessage(msg, shouldScroll = true) {
     className: 'message-avatar clickable-user'
   });
 
+  const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}</div>` : '';
+  const attachmentHtml = renderAttachmentHtml(msg);
+
   const item = document.createElement('div');
   item.className = 'message-item';
   item.innerHTML = `
@@ -1847,7 +2069,8 @@ function appendMessage(msg, shouldScroll = true) {
         <span class="message-username clickable-user">${escapeHtml(authorUsername)}</span>
         <span class="message-time">${escapeHtml(timeFormatted)}</span>
       </div>
-      <div class="message-text">${escapeHtml(msg.content)}</div>
+      ${textHtml}
+      ${attachmentHtml}
     </div>
   `;
 
@@ -1876,23 +2099,45 @@ function scrollToBottom() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-chatForm.addEventListener('submit', (e) => {
+chatForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const content = messageInput.value.trim();
+  const fileToUpload = pendingChannelFile;
 
-  if (!content) return;
+  if (!content && !fileToUpload) return;
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     alert('Not connected to the chat server. Please ensure the server is running.');
     return;
   }
 
-  socket.send(JSON.stringify({
-    type: 'chat',
-    content: content
-  }));
+  const sendBtn = chatForm.querySelector('#sendBtn');
+  if (sendBtn) sendBtn.disabled = true;
 
-  messageInput.value = '';
-  messageInput.focus();
+  try {
+    let fileMeta = null;
+    if (fileToUpload) {
+      fileMeta = await uploadFileStream(fileToUpload, {
+        serverId: activeServerId,
+        channelId: activeChannelId
+      });
+      pendingChannelFile = null;
+      if (fileInput) fileInput.value = '';
+      pendingAttachmentBar.classList.add('hidden');
+    }
+
+    socket.send(JSON.stringify({
+      type: 'chat',
+      content: content,
+      file: fileMeta
+    }));
+
+    messageInput.value = '';
+    messageInput.focus();
+  } catch (err) {
+    alert('Upload failed: ' + err.message);
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+  }
 });
 
 function appendDmMessage(msg, shouldScroll = true) {
@@ -1908,6 +2153,9 @@ function appendDmMessage(msg, shouldScroll = true) {
     className: 'message-avatar clickable-user'
   });
 
+  const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}</div>` : '';
+  const attachmentHtml = renderAttachmentHtml(msg);
+
   const item = document.createElement('div');
   item.className = 'message-item';
   item.innerHTML = `
@@ -1919,7 +2167,8 @@ function appendDmMessage(msg, shouldScroll = true) {
         <span class="message-username clickable-user">${escapeHtml(authorUsername)}</span>
         <span class="message-time">${escapeHtml(timeFormatted)}</span>
       </div>
-      <div class="message-text">${escapeHtml(msg.content)}</div>
+      ${textHtml}
+      ${attachmentHtml}
     </div>
   `;
 
@@ -1949,23 +2198,45 @@ function scrollDmToBottom() {
 }
 
 if (dmChatForm) {
-  dmChatForm.addEventListener('submit', (e) => {
+  dmChatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const content = dmMessageInput.value.trim();
-    if (!content || !activeDmFriend) return;
+    const fileToUpload = pendingDmFile;
+
+    if ((!content && !fileToUpload) || !activeDmFriend) return;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       alert('Not connected to the chat server. Please ensure the server is running.');
       return;
     }
 
-    socket.send(JSON.stringify({
-      type: 'direct_message',
-      friendId: activeDmFriend.id,
-      content: content
-    }));
+    const sendBtn = dmChatForm.querySelector('#dmSendBtn');
+    if (sendBtn) sendBtn.disabled = true;
 
-    dmMessageInput.value = '';
-    dmMessageInput.focus();
+    try {
+      let fileMeta = null;
+      if (fileToUpload) {
+        fileMeta = await uploadFileStream(fileToUpload, {
+          dmFriendId: activeDmFriend.id
+        });
+        pendingDmFile = null;
+        if (dmFileInput) dmFileInput.value = '';
+        dmPendingAttachmentBar.classList.add('hidden');
+      }
+
+      socket.send(JSON.stringify({
+        type: 'direct_message',
+        friendId: activeDmFriend.id,
+        content: content,
+        file: fileMeta
+      }));
+
+      dmMessageInput.value = '';
+      dmMessageInput.focus();
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
   });
 }
 
