@@ -236,6 +236,49 @@
     </div>
   </div>
 
+  <!-- Manage Accounts Modal (Developer Only) -->
+  <div class="modal-overlay hidden" id="manageAccountsModalOverlay">
+    <div class="modal-card accounts-modal-card">
+      <div class="modal-header accounts-modal-header">
+        <div>
+          <h2>Account Management</h2>
+          <p>Review registered accounts, join dates, and manage access.</p>
+        </div>
+        <span class="accounts-total-pill" id="accountsTotalPill">0 Accounts</span>
+      </div>
+      <div class="accounts-search-bar">
+        <input type="text" id="accountsSearchInput" placeholder="Search by username or display name..." />
+      </div>
+      <div class="accounts-list-container">
+        <div class="accounts-loading" id="accountsLoading">Loading registered accounts...</div>
+        <div class="accounts-list" id="accountsList"></div>
+      </div>
+      <div class="modal-actions mt-15">
+        <button type="button" class="secondary-btn btn-full" id="closeManageAccountsBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal for Removing Account -->
+  <div class="modal-overlay hidden" id="confirmRemoveAccountModalOverlay">
+    <div class="modal-card confirm-modal-card">
+      <div class="modal-header">
+        <h2>Remove Account</h2>
+        <p id="confirmRemoveAccountMessage">Are you sure you want to remove this account?</p>
+      </div>
+      <div class="confirm-warning-box">
+        <span class="warning-icon">⚠️</span>
+        <div class="warning-text">
+          This user will be <strong>immediately disconnected</strong>, removed from all friends lists and servers, and cannot log in again. Past messages will stay visible as <strong>Deleted User</strong>. <em>This action cannot be undone.</em>
+        </div>
+      </div>
+      <div class="modal-actions mt-20">
+        <button type="button" class="secondary-btn" id="cancelConfirmRemoveAccountBtn">Cancel</button>
+        <button type="button" class="danger-btn" id="submitConfirmRemoveAccountBtn">Yes, Remove Account</button>
+      </div>
+    </div>
+  </div>
+
   <!-- App Wrapper: Server Rail + Sidebar + Main View -->
   <div class="app-wrapper">
     <!-- 1. Left Server Rail (Discord Style) -->
@@ -355,6 +398,12 @@
           <!-- Developer Controls Bar (Developer Only) -->
           <div class="developer-panel hidden" id="developerPanel">
             <span class="dev-panel-badge">DEVELOPER</span>
+            <button type="button" class="dev-panel-btn" id="openManageAccountsBtn" title="Manage registered user accounts">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              </svg>
+              Accounts
+            </button>
             <button type="button" class="shutdown-btn" id="shutdownServerBtn" title="Stop the server and announce to all users">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                 <path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.12.96-4.02 2.58-5.41L6.17 5.17A8.932 8.932 0 0 0 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/>

@@ -85,6 +85,20 @@ const activeChannelDesc = document.getElementById('activeChannelDesc');
 const connectionStatus = document.getElementById('connectionStatus');
 const developerPanel = document.getElementById('developerPanel');
 const shutdownServerBtn = document.getElementById('shutdownServerBtn');
+const openManageAccountsBtn = document.getElementById('openManageAccountsBtn');
+
+// DOM Elements - Developer Account Management
+const manageAccountsModalOverlay = document.getElementById('manageAccountsModalOverlay');
+const closeManageAccountsBtn = document.getElementById('closeManageAccountsBtn');
+const accountsTotalPill = document.getElementById('accountsTotalPill');
+const accountsSearchInput = document.getElementById('accountsSearchInput');
+const accountsLoading = document.getElementById('accountsLoading');
+const accountsList = document.getElementById('accountsList');
+
+const confirmRemoveAccountModalOverlay = document.getElementById('confirmRemoveAccountModalOverlay');
+const confirmRemoveAccountMessage = document.getElementById('confirmRemoveAccountMessage');
+const cancelConfirmRemoveAccountBtn = document.getElementById('cancelConfirmRemoveAccountBtn');
+const submitConfirmRemoveAccountBtn = document.getElementById('submitConfirmRemoveAccountBtn');
 
 const currentUserAvatar = document.getElementById('currentUserAvatar');
 const currentUserName = document.getElementById('currentUserName');
@@ -199,6 +213,9 @@ let viewedUserProfile = null;
 let pendingChannelFile = null;
 let pendingDmFile = null;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB
+
+let allAccounts = [];
+let accountToRemove = null;
 
 let socket = null;
 let reconnectTimer = null;
@@ -1815,6 +1832,202 @@ if (confirmShutdownBtn) {
 }
 
 // ==========================================
+// DEVELOPER ACCOUNT MANAGEMENT
+// ==========================================
+function formatJoinDate(isoString) {
+  try {
+    const d = new Date(isoString);
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) + ' at ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return 'Unknown';
+  }
+}
+
+async function loadAccounts() {
+  if (!token || !currentUser || !currentUser.isDeveloper) return;
+
+  accountsLoading.classList.remove('hidden');
+  accountsList.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/developer/accounts', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      accountsLoading.textContent = data.error || 'Failed to load accounts.';
+      return;
+    }
+
+    allAccounts = data.accounts || [];
+    accountsTotalPill.textContent = `${allAccounts.length} ${allAccounts.length === 1 ? 'Account' : 'Accounts'}`;
+    accountsLoading.classList.add('hidden');
+    renderAccountsList(accountsSearchInput ? accountsSearchInput.value : '');
+  } catch (err) {
+    accountsLoading.textContent = 'Could not reach server.';
+  }
+}
+
+function renderAccountsList(filterText = '') {
+  if (!accountsList) return;
+  accountsList.innerHTML = '';
+
+  const cleanFilter = (filterText || '').trim().toLowerCase();
+  const filtered = allAccounts.filter(acc => {
+    if (!cleanFilter) return true;
+    return (acc.username || '').toLowerCase().includes(cleanFilter) ||
+           (acc.displayName || '').toLowerCase().includes(cleanFilter);
+  });
+
+  if (filtered.length === 0) {
+    accountsList.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">No accounts found matching "${escapeHtml(cleanFilter)}".</div>`;
+    return;
+  }
+
+  filtered.forEach(acc => {
+    const row = document.createElement('div');
+    row.className = 'account-row';
+
+    const isSelf = currentUser && acc.id === currentUser.id;
+    const isDeleted = Boolean(acc.isDeleted);
+    const devBadgeHtml = acc.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+
+    const avatarHtml = createAvatarHtml({
+      avatarUrl: acc.avatarUrl,
+      displayName: acc.displayName,
+      username: acc.username,
+      className: 'account-row-avatar'
+    });
+
+    let actionHtml = '';
+    if (isSelf) {
+      actionHtml = '<span class="self-tag">You</span>';
+    } else if (isDeleted) {
+      actionHtml = '<span class="removed-tag">Removed</span>';
+    } else {
+      actionHtml = '<button type="button" class="btn-remove-account">Remove Account</button>';
+    }
+
+    row.innerHTML = `
+      <div class="account-row-left">
+        ${avatarHtml}
+        <div class="account-row-meta">
+          <div class="account-row-title-row">
+            <span class="account-row-display">${escapeHtml(acc.displayName)}</span>
+            ${devBadgeHtml}
+            <span class="account-row-handle">@${escapeHtml(acc.username)}</span>
+          </div>
+          <span class="account-row-joined">Joined ${formatJoinDate(acc.createdAt)}</span>
+        </div>
+      </div>
+      <div class="account-row-right">
+        ${actionHtml}
+      </div>
+    `;
+
+    const removeBtn = row.querySelector('.btn-remove-account');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => {
+        openConfirmRemoveModal(acc);
+      });
+    }
+
+    accountsList.appendChild(row);
+  });
+}
+
+function openConfirmRemoveModal(acc) {
+  accountToRemove = acc;
+  confirmRemoveAccountMessage.innerHTML = `Are you sure you want to remove <strong>${escapeHtml(acc.displayName)} (@${escapeHtml(acc.username)})</strong>?`;
+  confirmRemoveAccountModalOverlay.classList.remove('hidden');
+}
+
+if (openManageAccountsBtn) {
+  openManageAccountsBtn.addEventListener('click', () => {
+    manageAccountsModalOverlay.classList.remove('hidden');
+    if (accountsSearchInput) accountsSearchInput.value = '';
+    loadAccounts();
+  });
+}
+
+if (closeManageAccountsBtn) {
+  closeManageAccountsBtn.addEventListener('click', () => {
+    manageAccountsModalOverlay.classList.add('hidden');
+  });
+}
+
+if (manageAccountsModalOverlay) {
+  manageAccountsModalOverlay.addEventListener('click', (e) => {
+    if (e.target === manageAccountsModalOverlay) {
+      manageAccountsModalOverlay.classList.add('hidden');
+    }
+  });
+}
+
+if (accountsSearchInput) {
+  accountsSearchInput.addEventListener('input', () => {
+    renderAccountsList(accountsSearchInput.value);
+  });
+}
+
+if (cancelConfirmRemoveAccountBtn) {
+  cancelConfirmRemoveAccountBtn.addEventListener('click', () => {
+    confirmRemoveAccountModalOverlay.classList.add('hidden');
+    accountToRemove = null;
+  });
+}
+
+if (confirmRemoveAccountModalOverlay) {
+  confirmRemoveAccountModalOverlay.addEventListener('click', (e) => {
+    if (e.target === confirmRemoveAccountModalOverlay) {
+      confirmRemoveAccountModalOverlay.classList.add('hidden');
+      accountToRemove = null;
+    }
+  });
+}
+
+if (submitConfirmRemoveAccountBtn) {
+  submitConfirmRemoveAccountBtn.addEventListener('click', async () => {
+    if (!accountToRemove) return;
+    submitConfirmRemoveAccountBtn.disabled = true;
+    submitConfirmRemoveAccountBtn.textContent = 'Removing...';
+
+    try {
+      const res = await fetch(`/api/developer/accounts/${accountToRemove.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to remove account.');
+        submitConfirmRemoveAccountBtn.disabled = false;
+        submitConfirmRemoveAccountBtn.textContent = 'Yes, Remove Account';
+        return;
+      }
+
+      showToast({
+        icon: '🗑️',
+        title: 'Account Removed',
+        body: `@${accountToRemove.username} has been permanently removed.`,
+        duration: 4000
+      });
+
+      confirmRemoveAccountModalOverlay.classList.add('hidden');
+      submitConfirmRemoveAccountBtn.disabled = false;
+      submitConfirmRemoveAccountBtn.textContent = 'Yes, Remove Account';
+      accountToRemove = null;
+
+      await loadAccounts();
+      loadFriends();
+    } catch (err) {
+      alert('Error removing account: ' + err.message);
+      submitConfirmRemoveAccountBtn.disabled = false;
+      submitConfirmRemoveAccountBtn.textContent = 'Yes, Remove Account';
+    }
+  });
+}
+
+// ==========================================
 // WEBSOCKET & LIVE CHAT
 // ==========================================
 function setStatus(state, text) {
@@ -1951,6 +2164,23 @@ function connectWebSocket() {
             displayedJoinCode.textContent = msg.joinCode;
           }
         }
+      } else if (msg.type === 'account_terminated') {
+        isIntentionalDisconnect = true;
+        localStorage.removeItem('voiceline_token');
+        token = null;
+        currentUser = null;
+        alert(msg.message || 'Your account has been removed by the developer.');
+        window.location.reload();
+      } else if (msg.type === 'user_removed') {
+        loadFriends();
+        if (currentUser && currentUser.isDeveloper && !manageAccountsModalOverlay.classList.contains('hidden')) {
+          loadAccounts();
+        }
+        if (activeDmFriend && activeDmFriend.id === msg.userId) {
+          activeDmFriend.isDeleted = true;
+          dmActiveFriendName.textContent = 'Deleted User';
+          dmWelcomeTitle.textContent = 'Deleted User';
+        }
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -2043,16 +2273,18 @@ if (dmRemoveAttachmentBtn) {
 }
 
 function appendMessage(msg, shouldScroll = true) {
-  const authorName = msg.authorName || 'Anonymous';
-  const authorUsername = msg.authorUsername ? `@${msg.authorUsername}` : '';
+  const isDeleted = Boolean(msg.isDeleted || msg.authorName === 'Deleted User');
+  const authorName = isDeleted ? 'Deleted User' : (msg.authorName || 'Anonymous');
+  const authorUsername = isDeleted ? '@deleted' : (msg.authorUsername ? `@${msg.authorUsername}` : '');
   const timeFormatted = formatTime(msg.timestamp);
-  const devBadgeHtml = msg.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+  const devBadgeHtml = (msg.isDeveloper && !isDeleted) ? '<span class="dev-badge">DEV</span>' : '';
+  const userClass = isDeleted ? '' : ' clickable-user';
 
   const avatarHtml = createAvatarHtml({
-    avatarUrl: msg.authorAvatarUrl,
-    displayName: authorName,
-    username: msg.authorUsername,
-    className: 'message-avatar clickable-user'
+    avatarUrl: isDeleted ? null : msg.authorAvatarUrl,
+    displayName: isDeleted ? '?' : authorName,
+    username: isDeleted ? 'deleted' : msg.authorUsername,
+    className: 'message-avatar' + userClass
   });
 
   const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}</div>` : '';
@@ -2064,9 +2296,9 @@ function appendMessage(msg, shouldScroll = true) {
     ${avatarHtml}
     <div class="message-body">
       <div class="message-meta">
-        <span class="message-author clickable-user">${escapeHtml(authorName)}</span>
+        <span class="message-author${userClass}">${escapeHtml(authorName)}</span>
         ${devBadgeHtml}
-        <span class="message-username clickable-user">${escapeHtml(authorUsername)}</span>
+        <span class="message-username${userClass}">${escapeHtml(authorUsername)}</span>
         <span class="message-time">${escapeHtml(timeFormatted)}</span>
       </div>
       ${textHtml}
@@ -2074,7 +2306,7 @@ function appendMessage(msg, shouldScroll = true) {
     </div>
   `;
 
-  if (msg.authorId) {
+  if (msg.authorId && !isDeleted) {
     item.querySelectorAll('.clickable-user').forEach(el => {
       el.addEventListener('click', () => {
         openUserProfile(msg.authorId, {
@@ -2141,16 +2373,18 @@ chatForm.addEventListener('submit', async (e) => {
 });
 
 function appendDmMessage(msg, shouldScroll = true) {
-  const authorName = msg.authorName || 'User';
-  const authorUsername = msg.authorUsername ? `@${msg.authorUsername}` : '';
+  const isDeleted = Boolean(msg.isDeleted || msg.authorName === 'Deleted User');
+  const authorName = isDeleted ? 'Deleted User' : (msg.authorName || 'User');
+  const authorUsername = isDeleted ? '@deleted' : (msg.authorUsername ? `@${msg.authorUsername}` : '');
   const timeFormatted = formatTime(msg.timestamp);
-  const devBadgeHtml = msg.isDeveloper ? '<span class="dev-badge">DEV</span>' : '';
+  const devBadgeHtml = (msg.isDeveloper && !isDeleted) ? '<span class="dev-badge">DEV</span>' : '';
+  const userClass = isDeleted ? '' : ' clickable-user';
 
   const avatarHtml = createAvatarHtml({
-    avatarUrl: msg.authorAvatarUrl,
-    displayName: authorName,
-    username: msg.authorUsername,
-    className: 'message-avatar clickable-user'
+    avatarUrl: isDeleted ? null : msg.authorAvatarUrl,
+    displayName: isDeleted ? '?' : authorName,
+    username: isDeleted ? 'deleted' : msg.authorUsername,
+    className: 'message-avatar' + userClass
   });
 
   const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}</div>` : '';
@@ -2162,9 +2396,9 @@ function appendDmMessage(msg, shouldScroll = true) {
     ${avatarHtml}
     <div class="message-body">
       <div class="message-meta">
-        <span class="message-author clickable-user">${escapeHtml(authorName)}</span>
+        <span class="message-author${userClass}">${escapeHtml(authorName)}</span>
         ${devBadgeHtml}
-        <span class="message-username clickable-user">${escapeHtml(authorUsername)}</span>
+        <span class="message-username${userClass}">${escapeHtml(authorUsername)}</span>
         <span class="message-time">${escapeHtml(timeFormatted)}</span>
       </div>
       ${textHtml}
@@ -2173,7 +2407,7 @@ function appendDmMessage(msg, shouldScroll = true) {
   `;
 
   const authorId = msg.authorId || msg.senderId;
-  if (authorId) {
+  if (authorId && !isDeleted) {
     item.querySelectorAll('.clickable-user').forEach(el => {
       el.addEventListener('click', () => {
         openUserProfile(authorId, {

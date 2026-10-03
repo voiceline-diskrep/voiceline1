@@ -114,6 +114,10 @@ try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_name TEXT DEFAULT NUL
 try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_size INTEGER DEFAULT NULL;`); } catch {}
 try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_type TEXT DEFAULT NULL;`); } catch {}
 
+// Stage 3b-1: Account removal & soft-delete
+try { db.exec(`ALTER TABLE users ADD COLUMN is_deleted INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN deleted_at TEXT DEFAULT NULL;`); } catch {}
+
 // Join Code Helpers
 const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function generateJoinCode() {
@@ -216,7 +220,8 @@ function verifyPassword(password, salt, storedHash) {
 
 // User Operations
 const getUserByUsernameStmt = db.prepare(`
-  SELECT id, username, display_name, avatar_url, bio, password_hash, password_salt, is_developer, created_at
+  SELECT id, username, display_name, avatar_url, bio, password_hash, password_salt, is_developer, created_at,
+         COALESCE(is_deleted, 0) AS is_deleted, deleted_at
   FROM users
   WHERE username = ?
 `);
@@ -229,12 +234,15 @@ function getUserByUsername(username) {
     ...row,
     avatarUrl: row.avatar_url || null,
     bio: row.bio || '',
-    isDeveloper: Boolean(row.is_developer)
+    isDeveloper: Boolean(row.is_developer),
+    isDeleted: Boolean(row.is_deleted),
+    deletedAt: row.deleted_at || null
   };
 }
 
 const getUserByIdStmt = db.prepare(`
-  SELECT id, username, display_name, avatar_url, bio, is_developer, created_at
+  SELECT id, username, display_name, avatar_url, bio, is_developer, created_at,
+         COALESCE(is_deleted, 0) AS is_deleted, deleted_at
   FROM users
   WHERE id = ?
 `);
@@ -250,7 +258,9 @@ function getUserById(id) {
     avatarUrl: row.avatar_url || null,
     bio: row.bio || '',
     isDeveloper: Boolean(row.is_developer),
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    isDeleted: Boolean(row.is_deleted),
+    deletedAt: row.deleted_at || null
   };
 }
 
@@ -282,7 +292,11 @@ function createUser({ username, displayName, password, isDeveloper = false }) {
     throw new Error('Password must be at least 4 characters long.');
   }
 
-  if (getUserByUsername(cleanUsername)) {
+  const existing = getUserByUsername(cleanUsername);
+  if (existing) {
+    if (existing.isDeleted) {
+      throw new Error(`Username "${cleanUsername}" is no longer available.`);
+    }
     const suggestion = suggestUsername(cleanUsername);
     const err = new Error(`Username "${cleanUsername}" is already taken.`);
     err.code = 'USERNAME_TAKEN';
@@ -309,6 +323,12 @@ function authenticateUser(username, password) {
   const user = getUserByUsername(username);
   if (!user) return null;
 
+  if (user.isDeleted) {
+    const err = new Error('This account has been removed.');
+    err.code = 'ACCOUNT_DELETED';
+    throw err;
+  }
+
   if (!verifyPassword(password, user.password_salt, user.password_hash)) {
     return null;
   }
@@ -323,6 +343,91 @@ function authenticateUser(username, password) {
   };
 }
 
+// Admin User Operations
+const getAllUsersForAdminStmt = db.prepare(`
+  SELECT id, username, display_name AS displayName, avatar_url AS avatarUrl,
+         is_developer AS isDeveloper, created_at AS createdAt,
+         COALESCE(is_deleted, 0) AS isDeleted, deleted_at AS deletedAt
+  FROM users
+  ORDER BY id ASC
+`);
+
+function getAllUsersForAdmin() {
+  const rows = getAllUsersForAdminStmt.all();
+  return rows.map(r => ({
+    id: r.id,
+    username: r.username,
+    displayName: r.displayName,
+    avatarUrl: r.avatarUrl || null,
+    isDeveloper: Boolean(r.isDeveloper),
+    createdAt: r.createdAt,
+    isDeleted: Boolean(r.isDeleted),
+    deletedAt: r.deletedAt || null
+  }));
+}
+
+const softDeleteUserStmt = db.prepare(`
+  UPDATE users
+  SET display_name = 'Deleted User',
+      avatar_url = NULL,
+      bio = '',
+      password_hash = '',
+      password_salt = '',
+      is_deleted = 1,
+      deleted_at = ?
+  WHERE id = ?
+`);
+
+const deleteUserSessionsStmt = db.prepare(`DELETE FROM sessions WHERE user_id = ?`);
+const deleteUserFriendshipsStmt = db.prepare(`DELETE FROM friendships WHERE sender_id = ? OR receiver_id = ?`);
+const deleteUserServerMembershipsStmt = db.prepare(`DELETE FROM server_members WHERE user_id = ?`);
+
+function deleteUserAccount({ userId, adminUserId }) {
+  const targetId = Number(userId);
+  const adminId = Number(adminUserId);
+
+  if (!targetId) {
+    throw new Error('Invalid user ID.');
+  }
+
+  if (targetId === adminId) {
+    throw new Error('You cannot remove your own account.');
+  }
+
+  const target = getUserById(targetId);
+  if (!target) {
+    throw new Error('User not found.');
+  }
+
+  if (target.isDeleted) {
+    throw new Error('Account is already removed.');
+  }
+
+  const now = new Date().toISOString();
+
+  // If user had an avatar file on disk, remove it
+  if (target.avatarUrl && target.avatarUrl.startsWith('/uploads/avatars/')) {
+    const avatarPath = path.join(__dirname, '..', target.avatarUrl.replace(/^\//, ''));
+    try {
+      if (fs.existsSync(avatarPath)) fs.unlinkSync(avatarPath);
+    } catch {}
+  }
+
+  softDeleteUserStmt.run(now, targetId);
+  deleteUserSessionsStmt.run(targetId);
+  deleteUserFriendshipsStmt.run(targetId, targetId);
+  deleteUserServerMembershipsStmt.run(targetId);
+
+  return {
+    success: true,
+    removedUser: {
+      id: target.id,
+      username: target.username,
+      displayName: target.displayName
+    }
+  };
+}
+
 // Session Operations
 const insertSessionStmt = db.prepare(`
   INSERT INTO sessions (token, user_id, created_at)
@@ -330,7 +435,8 @@ const insertSessionStmt = db.prepare(`
 `);
 
 const getUserByTokenStmt = db.prepare(`
-  SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio, u.is_developer
+  SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio, u.is_developer,
+         COALESCE(u.is_deleted, 0) AS is_deleted
   FROM sessions s
   JOIN users u ON s.user_id = u.id
   WHERE s.token = ?
@@ -349,7 +455,7 @@ function createSession(userId) {
 function getUserByToken(token) {
   if (!token) return null;
   const row = getUserByTokenStmt.get(token);
-  if (!row) return null;
+  if (!row || row.is_deleted) return null;
   return {
     id: row.id,
     username: row.username,
@@ -865,6 +971,7 @@ const getHistoryByChannelStmt = db.prepare(`
          COALESCE(u.username, m.author_username, 'anon') AS authorUsername, 
          u.avatar_url AS authorAvatarUrl,
          COALESCE(u.is_developer, m.is_developer, 0) AS isDeveloper, 
+         COALESCE(u.is_deleted, 0) AS isAuthorDeleted,
          m.content, m.timestamp,
          m.file_url AS fileUrl, m.file_name AS fileName, m.file_size AS fileSize, m.file_type AS fileType
   FROM messages m
@@ -876,11 +983,17 @@ const getHistoryByChannelStmt = db.prepare(`
 
 function getRecentMessages(channelId = 1, limit = 50) {
   const rows = getHistoryByChannelStmt.all(Number(channelId) || 1, limit);
-  return rows.reverse().map(r => ({
-    ...r,
-    authorAvatarUrl: r.authorAvatarUrl || null,
-    isDeveloper: Boolean(r.isDeveloper)
-  }));
+  return rows.reverse().map(r => {
+    const isDeleted = Boolean(r.isAuthorDeleted);
+    return {
+      ...r,
+      authorName: isDeleted ? 'Deleted User' : (r.authorName || 'Anonymous'),
+      authorUsername: isDeleted ? 'deleted' : (r.authorUsername || 'anon'),
+      authorAvatarUrl: isDeleted ? null : (r.authorAvatarUrl || null),
+      isDeveloper: isDeleted ? false : Boolean(r.isDeveloper),
+      isDeleted
+    };
+  });
 }
 
 // Direct Messages Operations
@@ -925,10 +1038,11 @@ const getDirectMessagesStmt = db.prepare(`
     dm.sender_id AS senderId,
     dm.sender_id AS authorId,
     dm.receiver_id AS receiverId,
-    u.display_name AS authorName,
-    u.username AS authorUsername,
+    COALESCE(u.display_name, 'Deleted User') AS authorName,
+    COALESCE(u.username, 'deleted') AS authorUsername,
     u.avatar_url AS authorAvatarUrl,
-    u.is_developer AS isDeveloper,
+    COALESCE(u.is_developer, 0) AS isDeveloper,
+    COALESCE(u.is_deleted, 0) AS isAuthorDeleted,
     dm.content,
     dm.timestamp,
     dm.file_url AS fileUrl,
@@ -936,7 +1050,7 @@ const getDirectMessagesStmt = db.prepare(`
     dm.file_size AS fileSize,
     dm.file_type AS fileType
   FROM direct_messages dm
-  JOIN users u ON dm.sender_id = u.id
+  LEFT JOIN users u ON dm.sender_id = u.id
   WHERE (dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)
   ORDER BY dm.id DESC
   LIMIT ?
@@ -946,11 +1060,17 @@ function getDirectMessagesHistory(userId, friendId, limit = 50) {
   const uId = Number(userId);
   const fId = Number(friendId);
   const rows = getDirectMessagesStmt.all(uId, fId, fId, uId, limit);
-  return rows.reverse().map(r => ({
-    ...r,
-    authorAvatarUrl: r.authorAvatarUrl || null,
-    isDeveloper: Boolean(r.isDeveloper)
-  }));
+  return rows.reverse().map(r => {
+    const isDeleted = Boolean(r.isAuthorDeleted);
+    return {
+      ...r,
+      authorName: isDeleted ? 'Deleted User' : (r.authorName || 'User'),
+      authorUsername: isDeleted ? 'deleted' : (r.authorUsername || 'user'),
+      authorAvatarUrl: isDeleted ? null : (r.authorAvatarUrl || null),
+      isDeveloper: isDeleted ? false : Boolean(r.isDeveloper),
+      isDeleted
+    };
+  });
 }
 
 // Mutual Friends and Mutual Servers
@@ -1082,5 +1202,7 @@ module.exports = {
   saveMessage,
   getRecentMessages,
   getStorageStats,
-  formatBytes
+  formatBytes,
+  getAllUsersForAdmin,
+  deleteUserAccount
 };

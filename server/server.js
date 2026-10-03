@@ -261,13 +261,20 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: 'Please enter both username and password.' });
         }
 
-        const user = db.authenticateUser(username, password);
-        if (!user) {
-          return sendJson(res, 401, { error: 'Invalid username or password.' });
-        }
+        try {
+          const user = db.authenticateUser(username, password);
+          if (!user) {
+            return sendJson(res, 401, { error: 'Invalid username or password.' });
+          }
 
-        const token = db.createSession(user.id);
-        return sendJson(res, 200, { success: true, token, user });
+          const token = db.createSession(user.id);
+          return sendJson(res, 200, { success: true, token, user });
+        } catch (err) {
+          if (err.code === 'ACCOUNT_DELETED') {
+            return sendJson(res, 403, { error: err.message });
+          }
+          return sendJson(res, 400, { error: err.message });
+        }
       }
 
       // GET /api/me
@@ -659,6 +666,58 @@ const server = http.createServer(async (req, res) => {
           mutualFriends,
           mutualServers
         });
+      }
+
+      // GET /api/developer/accounts (List all registered accounts - Developer only)
+      if (req.method === 'GET' && pathname === '/api/developer/accounts') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can view registered accounts.' });
+        }
+
+        const accounts = db.getAllUsersForAdmin();
+        return sendJson(res, 200, { success: true, accounts });
+      }
+
+      // DELETE /api/developer/accounts/:userId (Remove registered account - Developer only)
+      const deleteAccountMatch = pathname.match(/^\/api\/developer\/accounts\/(\d+)$/);
+      if (req.method === 'DELETE' && deleteAccountMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can remove accounts.' });
+        }
+
+        const targetUserId = Number(deleteAccountMatch[1]);
+        if (targetUserId === user.id) {
+          return sendJson(res, 400, { error: 'You cannot remove your own developer account.' });
+        }
+
+        try {
+          const result = db.deleteUserAccount({ userId: targetUserId, adminUserId: user.id });
+
+          // Immediately disconnect that user if currently online
+          for (const client of wss.clients) {
+            if (client.readyState === WebSocket.OPEN && client.user && client.user.id === targetUserId) {
+              try {
+                client.send(JSON.stringify({
+                  type: 'account_terminated',
+                  message: 'Your account has been removed by the developer.'
+                }));
+              } catch {}
+              client.close(4003, 'Account Removed');
+            }
+          }
+
+          // Broadcast updates to all connected clients
+          broadcastAll({ type: 'friends_updated' });
+          broadcastAll({ type: 'user_removed', userId: targetUserId });
+
+          return sendJson(res, 200, { success: true, ...result });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
       }
 
       // GET /api/server/storage-stats (Developer only)
