@@ -194,6 +194,27 @@ const viewUserBio = document.getElementById('viewUserBio');
 const viewUserMessageBtn = document.getElementById('viewUserMessageBtn');
 const closeUserProfileBtn = document.getElementById('closeUserProfileBtn');
 
+// DOM Elements - Voice Calling (Stage 3c-1)
+const dmStartCallBtn = document.getElementById('dmStartCallBtn');
+const incomingCallModalOverlay = document.getElementById('incomingCallModalOverlay');
+const incomingCallAvatar = document.getElementById('incomingCallAvatar');
+const incomingCallName = document.getElementById('incomingCallName');
+const incomingCallHandle = document.getElementById('incomingCallHandle');
+const acceptCallBtn = document.getElementById('acceptCallBtn');
+const declineCallBtn = document.getElementById('declineCallBtn');
+
+const activeCallWidget = document.getElementById('activeCallWidget');
+const callPartnerAvatar = document.getElementById('callPartnerAvatar');
+const callPartnerName = document.getElementById('callPartnerName');
+const callStatusText = document.getElementById('callStatusText');
+const callTimerText = document.getElementById('callTimerText');
+const callMuteBtn = document.getElementById('callMuteBtn');
+const callMuteBtnLabel = document.getElementById('callMuteBtnLabel');
+const micIconUnmuted = document.getElementById('micIconUnmuted');
+const micIconMuted = document.getElementById('micIconMuted');
+const callHangupBtn = document.getElementById('callHangupBtn');
+const remoteVoiceAudio = document.getElementById('remoteVoiceAudio');
+
 // State
 let currentUser = null;
 let token = localStorage.getItem('voiceline_token');
@@ -559,6 +580,7 @@ function applyUserProfile(user) {
 }
 
 async function handleLogout() {
+  try { endVoiceCall(true); } catch {}
   const oldToken = token;
 
   isIntentionalDisconnect = true;
@@ -931,6 +953,18 @@ function switchToDmView(friend) {
     dmFriendDevBadge.classList.add('hidden');
   }
 
+  if (dmStartCallBtn) {
+    if (friend.isDeleted) {
+      dmStartCallBtn.classList.add('hidden');
+    } else {
+      dmStartCallBtn.classList.remove('hidden');
+      dmStartCallBtn.disabled = false;
+      dmStartCallBtn.onclick = () => {
+        initiateVoiceCall(friend);
+      };
+    }
+  }
+
   dmWelcomeTitle.textContent = friend.displayName || friend.username;
   dmWelcomeDesc.textContent = `This is the start of your direct message history with @${friend.username}.`;
   dmMessageInput.placeholder = `Message @${friend.username}... (Press Enter to send)`;
@@ -1109,6 +1143,7 @@ function renderFriendsUI() {
           </div>
         </div>
         <div class="friend-actions">
+          <button type="button" class="btn-friend-action btn-call-friend" title="Voice Call Friend">Call</button>
           <button type="button" class="btn-friend-action btn-message-friend" title="Message Friend">Message</button>
           <button type="button" class="btn-friend-action btn-remove-friend" title="Remove Friend">Remove</button>
         </div>
@@ -1116,6 +1151,11 @@ function renderFriendsUI() {
 
       card.querySelector('.friend-card-left').addEventListener('click', () => {
         openUserProfile(f.id, f);
+      });
+
+      card.querySelector('.btn-call-friend').addEventListener('click', (e) => {
+        e.stopPropagation();
+        initiateVoiceCall(f);
       });
 
       card.querySelector('.btn-message-friend').addEventListener('click', (e) => {
@@ -2181,6 +2221,26 @@ function connectWebSocket() {
           dmActiveFriendName.textContent = 'Deleted User';
           dmWelcomeTitle.textContent = 'Deleted User';
         }
+      } else if (msg.type === 'incoming_call') {
+        handleIncomingCall(msg);
+      } else if (msg.type === 'call_outgoing') {
+        handleCallOutgoing(msg);
+      } else if (msg.type === 'call_accepted') {
+        handleCallAccepted(msg);
+      } else if (msg.type === 'call_connected') {
+        handleCallConnected(msg);
+      } else if (msg.type === 'call_declined') {
+        handleCallDeclined(msg);
+      } else if (msg.type === 'call_ended') {
+        handleCallEnded(msg);
+      } else if (msg.type === 'call_error') {
+        handleCallError(msg);
+      } else if (msg.type === 'webrtc_offer') {
+        handleWebRtcOffer(msg);
+      } else if (msg.type === 'webrtc_answer') {
+        handleWebRtcAnswer(msg);
+      } else if (msg.type === 'webrtc_ice_candidate') {
+        handleWebRtcIceCandidate(msg);
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -2481,5 +2541,556 @@ setInterval(() => {
   }
 }, 4000);
 
+// ==========================================
+// STAGE 3c-1: 1-ON-1 WEBRTC VOICE CALLING
+// ==========================================
+
+// Web Audio sound synthesizer (Zero external dependencies)
+let audioCtx = null;
+function getAudioContext() {
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) audioCtx = new AudioContextClass();
+  }
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
+
+let ringInterval = null;
+
+function startOutgoingRingtone() {
+  stopAllRingtones();
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const playBeep = () => {
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, ctx.currentTime);
+      gain.gain.setValueAtTime(0.06, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.2);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 1.2);
+    } catch {}
+  };
+  playBeep();
+  ringInterval = setInterval(playBeep, 2800);
+}
+
+function startIncomingRingtone() {
+  stopAllRingtones();
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const playRing = () => {
+    try {
+      const now = ctx.currentTime;
+      [440, 480].forEach(freq => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(0.07, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 1.5);
+      });
+    } catch {}
+  };
+  playRing();
+  ringInterval = setInterval(playRing, 2500);
+}
+
+function stopAllRingtones() {
+  if (ringInterval) {
+    clearInterval(ringInterval);
+    ringInterval = null;
+  }
+}
+
+function playCallChime(type) {
+  stopAllRingtones();
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    gain.connect(ctx.destination);
+    osc.connect(gain);
+
+    if (type === 'connect') {
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.12);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+      osc.start(now);
+      osc.stop(now + 0.35);
+    } else if (type === 'end') {
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(330, now + 0.12);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+      osc.start(now);
+      osc.stop(now + 0.35);
+    }
+  } catch {}
+}
+
+// WebRTC Configuration
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
+let currentCall = {
+  callId: null,
+  partner: null,
+  role: null,
+  status: 'idle', // 'idle' | 'calling' | 'ringing' | 'connected'
+  peerConnection: null,
+  localStream: null,
+  remoteStream: null,
+  isMuted: false,
+  timerInterval: null,
+  seconds: 0
+};
+
+let pendingIceCandidates = [];
+
+// Start an outgoing voice call
+async function initiateVoiceCall(friend) {
+  if (!friend || !friend.id) return;
+
+  if (currentCall.status !== 'idle') {
+    alert('You are already in a voice call.');
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Voice calling requires microphone access, which is not supported in this browser or over insecure HTTP. Use localhost or HTTPS.');
+    return;
+  }
+
+  try {
+    currentCall.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (err) {
+    alert('Could not access microphone: ' + (err.message || err.name) + '\nPlease ensure microphone permissions are granted in your browser settings.');
+    return;
+  }
+
+  currentCall.partner = friend;
+  currentCall.role = 'caller';
+  currentCall.status = 'calling';
+  currentCall.isMuted = false;
+  pendingIceCandidates = [];
+
+  // Show active call widget in "Calling..." state
+  renderAvatarInto(callPartnerAvatar, friend);
+  callPartnerName.textContent = friend.displayName || friend.username;
+  callStatusText.textContent = 'Calling...';
+  callTimerText.textContent = '00:00';
+  updateMuteButtonUI();
+  activeCallWidget.classList.remove('hidden');
+
+  startOutgoingRingtone();
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'call_user',
+      targetUserId: friend.id
+    }));
+  } else {
+    endVoiceCall(false);
+    alert('Not connected to the chat server.');
+  }
+}
+
+// Server confirmed the target is ringing
+function handleCallOutgoing(msg) {
+  currentCall.callId = msg.callId;
+  currentCall.partner = msg.target;
+  callStatusText.textContent = 'Ringing...';
+}
+
+// Callee receives incoming call notification
+function handleIncomingCall(msg) {
+  // If already in a call, automatically decline with busy
+  if (currentCall.status !== 'idle') {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'call_decline', callId: msg.callId }));
+    }
+    return;
+  }
+
+  currentCall.callId = msg.callId;
+  currentCall.partner = msg.caller;
+  currentCall.role = 'callee';
+  currentCall.status = 'ringing';
+  pendingIceCandidates = [];
+
+  renderAvatarInto(incomingCallAvatar, msg.caller);
+  incomingCallName.textContent = msg.caller.displayName || msg.caller.username;
+  incomingCallHandle.textContent = '@' + msg.caller.username;
+  incomingCallModalOverlay.classList.remove('hidden');
+
+  startIncomingRingtone();
+}
+
+// Callee clicks Accept
+async function acceptIncomingCall() {
+  if (!currentCall.callId) return;
+
+  stopAllRingtones();
+  incomingCallModalOverlay.classList.add('hidden');
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Voice calling requires microphone access, which is not supported in this browser or over insecure HTTP.');
+    declineIncomingCall();
+    return;
+  }
+
+  try {
+    currentCall.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (err) {
+    alert('Could not access microphone: ' + (err.message || err.name));
+    declineIncomingCall();
+    return;
+  }
+
+  // Show active call widget
+  renderAvatarInto(callPartnerAvatar, currentCall.partner);
+  callPartnerName.textContent = currentCall.partner.displayName || currentCall.partner.username;
+  callStatusText.textContent = 'Connecting...';
+  callTimerText.textContent = '00:00';
+  updateMuteButtonUI();
+  activeCallWidget.classList.remove('hidden');
+
+  setupPeerConnection();
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'call_accept',
+      callId: currentCall.callId
+    }));
+  }
+}
+
+// Callee clicks Decline
+function declineIncomingCall() {
+  stopAllRingtones();
+  incomingCallModalOverlay.classList.add('hidden');
+
+  if (currentCall.callId && socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'call_decline',
+      callId: currentCall.callId
+    }));
+  }
+
+  currentCall.callId = null;
+  currentCall.partner = null;
+  currentCall.role = null;
+  currentCall.status = 'idle';
+}
+
+// Caller receives notification that Callee accepted
+async function handleCallAccepted(msg) {
+  stopAllRingtones();
+  playCallChime('connect');
+
+  callStatusText.textContent = 'Connecting...';
+  setupPeerConnection();
+
+  try {
+    const offer = await currentCall.peerConnection.createOffer();
+    await currentCall.peerConnection.setLocalDescription(offer);
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'webrtc_offer',
+        callId: currentCall.callId,
+        targetUserId: currentCall.partner.id,
+        sdp: offer
+      }));
+    }
+  } catch (err) {
+    console.error('Error creating WebRTC offer:', err);
+    endVoiceCall(true);
+  }
+}
+
+// Callee receives call_connected confirmation
+function handleCallConnected(msg) {
+  stopAllRingtones();
+  callStatusText.textContent = 'Connecting...';
+}
+
+// Caller receives notification that Callee declined
+function handleCallDeclined(msg) {
+  stopAllRingtones();
+  playCallChime('end');
+  showToast({
+    icon: '📞',
+    title: 'Call Declined',
+    body: msg.message || 'Call was declined.',
+    duration: 3500
+  });
+  endVoiceCall(false);
+}
+
+// Either side receives call ended (hangup or disconnect)
+function handleCallEnded(msg) {
+  stopAllRingtones();
+  playCallChime('end');
+  showToast({
+    icon: '📞',
+    title: 'Call Ended',
+    body: msg.reason === 'partner_disconnected' ? 'Friend disconnected.' : 'Call ended.',
+    duration: 3000
+  });
+  endVoiceCall(false);
+}
+
+// Error initiating or during call
+function handleCallError(msg) {
+  stopAllRingtones();
+  playCallChime('end');
+  alert(msg.message || 'Could not place voice call.');
+  endVoiceCall(false);
+}
+
+// Setup RTCPeerConnection and audio streams
+function setupPeerConnection() {
+  if (currentCall.peerConnection) {
+    try { currentCall.peerConnection.close(); } catch {}
+  }
+
+  const pc = new RTCPeerConnection(rtcConfig);
+  currentCall.peerConnection = pc;
+
+  if (currentCall.localStream) {
+    currentCall.localStream.getTracks().forEach(track => {
+      pc.addTrack(track, currentCall.localStream);
+    });
+  }
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && currentCall.callId && currentCall.partner && socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'webrtc_ice_candidate',
+        callId: currentCall.callId,
+        targetUserId: currentCall.partner.id,
+        candidate: event.candidate
+      }));
+    }
+  };
+
+  pc.ontrack = (event) => {
+    if (event.streams && event.streams[0]) {
+      currentCall.remoteStream = event.streams[0];
+      if (remoteVoiceAudio) {
+        remoteVoiceAudio.srcObject = event.streams[0];
+        remoteVoiceAudio.play().catch(e => console.log('Audio autoplay prevented:', e));
+      }
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') {
+      onCallEstablished();
+    } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      console.warn('WebRTC peer connection state:', pc.connectionState);
+    }
+  };
+}
+
+// Callee handles Offer from Caller
+async function handleWebRtcOffer(msg) {
+  if (!currentCall.peerConnection) {
+    setupPeerConnection();
+  }
+
+  try {
+    await currentCall.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    await flushPendingIceCandidates();
+
+    const answer = await currentCall.peerConnection.createAnswer();
+    await currentCall.peerConnection.setLocalDescription(answer);
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'webrtc_answer',
+        callId: currentCall.callId,
+        targetUserId: currentCall.partner.id,
+        sdp: answer
+      }));
+    }
+
+    playCallChime('connect');
+    onCallEstablished();
+  } catch (err) {
+    console.error('Error handling WebRTC offer:', err);
+    endVoiceCall(true);
+  }
+}
+
+// Caller handles Answer from Callee
+async function handleWebRtcAnswer(msg) {
+  if (!currentCall.peerConnection) return;
+
+  try {
+    await currentCall.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    await flushPendingIceCandidates();
+    onCallEstablished();
+  } catch (err) {
+    console.error('Error handling WebRTC answer:', err);
+    endVoiceCall(true);
+  }
+}
+
+// Handling ICE candidates with queueing
+async function handleWebRtcIceCandidate(msg) {
+  if (!currentCall.peerConnection) return;
+
+  if (!currentCall.peerConnection.remoteDescription || !currentCall.peerConnection.remoteDescription.type) {
+    pendingIceCandidates.push(msg.candidate);
+    return;
+  }
+
+  try {
+    await currentCall.peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+  } catch (err) {
+    console.error('Error adding ICE candidate:', err);
+  }
+}
+
+async function flushPendingIceCandidates() {
+  if (!currentCall.peerConnection || !currentCall.peerConnection.remoteDescription) return;
+  while (pendingIceCandidates.length > 0) {
+    const candidate = pendingIceCandidates.shift();
+    try {
+      await currentCall.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      console.error('Error flushing ICE candidate:', err);
+    }
+  }
+}
+
+// Call is officially connected
+function onCallEstablished() {
+  currentCall.status = 'connected';
+  callStatusText.textContent = 'Connected';
+
+  if (!currentCall.timerInterval) {
+    currentCall.seconds = 0;
+    currentCall.timerInterval = setInterval(() => {
+      currentCall.seconds++;
+      const mins = String(Math.floor(currentCall.seconds / 60)).padStart(2, '0');
+      const secs = String(currentCall.seconds % 60).padStart(2, '0');
+      callTimerText.textContent = `${mins}:${secs}`;
+    }, 1000);
+  }
+}
+
+// Toggle Mute / Unmute
+function toggleMute() {
+  if (!currentCall.localStream) return;
+  const audioTrack = currentCall.localStream.getAudioTracks()[0];
+  if (audioTrack) {
+    audioTrack.enabled = !audioTrack.enabled;
+    currentCall.isMuted = !audioTrack.enabled;
+    updateMuteButtonUI();
+  }
+}
+
+function updateMuteButtonUI() {
+  if (currentCall.isMuted) {
+    callMuteBtn.classList.add('is-muted');
+    micIconUnmuted.classList.add('hidden');
+    micIconMuted.classList.remove('hidden');
+    callMuteBtnLabel.textContent = 'Unmute';
+  } else {
+    callMuteBtn.classList.remove('is-muted');
+    micIconUnmuted.classList.remove('hidden');
+    micIconMuted.classList.add('hidden');
+    callMuteBtnLabel.textContent = 'Mute';
+  }
+}
+
+// Cleanly terminate voice call
+function endVoiceCall(shouldNotify = true) {
+  stopAllRingtones();
+
+  if (shouldNotify && currentCall.callId && socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'call_end',
+      callId: currentCall.callId
+    }));
+  }
+
+  if (currentCall.localStream) {
+    currentCall.localStream.getTracks().forEach(track => {
+      try { track.stop(); } catch {}
+    });
+    currentCall.localStream = null;
+  }
+
+  if (currentCall.peerConnection) {
+    try { currentCall.peerConnection.close(); } catch {}
+    currentCall.peerConnection = null;
+  }
+
+  if (remoteVoiceAudio) {
+    remoteVoiceAudio.srcObject = null;
+  }
+
+  if (currentCall.timerInterval) {
+    clearInterval(currentCall.timerInterval);
+    currentCall.timerInterval = null;
+  }
+
+  currentCall.callId = null;
+  currentCall.partner = null;
+  currentCall.role = null;
+  currentCall.status = 'idle';
+  currentCall.isMuted = false;
+  currentCall.seconds = 0;
+  pendingIceCandidates = [];
+
+  if (activeCallWidget) activeCallWidget.classList.add('hidden');
+  if (incomingCallModalOverlay) incomingCallModalOverlay.classList.add('hidden');
+}
+
+// Voice Calling Event Listeners
+if (acceptCallBtn) {
+  acceptCallBtn.addEventListener('click', acceptIncomingCall);
+}
+
+if (declineCallBtn) {
+  declineCallBtn.addEventListener('click', declineIncomingCall);
+}
+
+if (callMuteBtn) {
+  callMuteBtn.addEventListener('click', toggleMute);
+}
+
+if (callHangupBtn) {
+  callHangupBtn.addEventListener('click', () => {
+    playCallChime('end');
+    endVoiceCall(true);
+  });
+}
+
 // Boot check
 checkCurrentSession();
+

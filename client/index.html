@@ -578,6 +578,12 @@
               <div class="channel-desc" id="dmActiveFriendUsername">@friend</div>
             </div>
           </div>
+          <button type="button" class="dm-call-btn" id="dmStartCallBtn" title="Start voice call with friend">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-1-1z"/>
+            </svg>
+            <span>Start Call</span>
+          </button>
         </div>
 
         <div class="header-right">
@@ -718,6 +724,72 @@
       <div class="shutdown-hint">To restart, run <code>start.bat</code> on the host PC and refresh this page.</div>
     </div>
   </div>
+
+  <!-- Incoming Call Modal -->
+  <div class="modal-overlay hidden" id="incomingCallModalOverlay">
+    <div class="modal-card incoming-call-card">
+      <div class="incoming-call-pulse-ring">
+        <div class="user-avatar incoming-call-avatar" id="incomingCallAvatar">U</div>
+      </div>
+      <h2 class="incoming-call-title" id="incomingCallName">Friend Name</h2>
+      <p class="incoming-call-handle" id="incomingCallHandle">@friend</p>
+      <p class="incoming-call-subtitle">Incoming Voice Call...</p>
+      <div class="incoming-call-actions">
+        <button type="button" class="btn-decline-call" id="declineCallBtn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+          <span>Decline</span>
+        </button>
+        <button type="button" class="btn-accept-call" id="acceptCallBtn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-1-1z"/>
+          </svg>
+          <span>Accept</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Voice Call Floating Widget -->
+  <div class="active-call-widget hidden" id="activeCallWidget">
+    <div class="call-widget-content">
+      <div class="call-widget-user">
+        <div class="call-widget-avatar-wrapper">
+          <div class="user-avatar call-widget-avatar" id="callPartnerAvatar">U</div>
+          <span class="call-pulse-dot" id="callPulseDot"></span>
+        </div>
+        <div class="call-widget-info">
+          <span class="call-partner-name" id="callPartnerName">Friend</span>
+          <div class="call-status-row">
+            <span class="call-status-text" id="callStatusText">Connecting...</span>
+            <span class="call-timer-text" id="callTimerText">00:00</span>
+          </div>
+        </div>
+      </div>
+      <div class="call-widget-actions">
+        <button type="button" class="call-action-btn mute-btn" id="callMuteBtn" title="Mute Microphone">
+          <svg id="micIconUnmuted" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <svg id="micIconMuted" class="hidden" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c1.33-.19 2.53-.78 3.53-1.62l3.2 3.2 1.27-1.27L4.27 3z"/>
+          </svg>
+          <span id="callMuteBtnLabel">Mute</span>
+        </button>
+        <button type="button" class="call-action-btn hangup-btn" id="callHangupBtn" title="End Voice Call">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+          <span>End Call</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden Voice Audio Element -->
+  <audio id="remoteVoiceAudio" autoplay playsinline class="hidden"></audio>
 
   <!-- Notification Toast Container -->
   <div class="toast-container" id="toastContainer"></div>

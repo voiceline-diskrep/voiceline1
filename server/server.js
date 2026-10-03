@@ -871,6 +871,20 @@ function broadcastToUsers(userIds, payload) {
   }
 }
 
+// WebRTC 1-to-1 Voice Signaling
+// Key: userId (Number) -> { callId: string, partnerId: number, role: 'caller'|'callee', status: 'ringing'|'connected' }
+const activeVoiceCalls = new Map();
+
+function getClientByUserId(userId) {
+  const targetId = Number(userId);
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client.user && client.user.id === targetId) {
+      return client;
+    }
+  }
+  return null;
+}
+
 // Returns the channel if this account may use it inside the given server, otherwise null
 function resolveAccessibleChannel(user, serverId, channelId) {
   const sId = Number(serverId);
@@ -1029,6 +1043,158 @@ wss.on('connection', (ws, req) => {
           data: savedMessage
         });
         return;
+      } else if (parsed.type === 'call_user') {
+        const targetUserId = Number(parsed.targetUserId);
+        if (!targetUserId || targetUserId === ws.user.id) {
+          ws.send(JSON.stringify({ type: 'call_error', message: 'Invalid target user.' }));
+          return;
+        }
+
+        if (activeVoiceCalls.has(ws.user.id)) {
+          ws.send(JSON.stringify({ type: 'call_error', message: 'You are already in a voice call.' }));
+          return;
+        }
+
+        const targetUser = db.getUserById(targetUserId);
+        if (!targetUser || targetUser.isDeleted) {
+          ws.send(JSON.stringify({ type: 'call_error', message: 'User not found or unavailable.' }));
+          return;
+        }
+
+        const targetClient = getClientByUserId(targetUserId);
+        if (!targetClient) {
+          ws.send(JSON.stringify({ type: 'call_error', message: `@${targetUser.username} is currently offline.` }));
+          return;
+        }
+
+        if (activeVoiceCalls.has(targetUserId)) {
+          ws.send(JSON.stringify({ type: 'call_error', message: `@${targetUser.username} is currently busy on another call.` }));
+          return;
+        }
+
+        const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        activeVoiceCalls.set(ws.user.id, { callId, partnerId: targetUserId, role: 'caller', status: 'ringing' });
+        activeVoiceCalls.set(targetUserId, { callId, partnerId: ws.user.id, role: 'callee', status: 'ringing' });
+
+        targetClient.send(JSON.stringify({
+          type: 'incoming_call',
+          callId,
+          caller: {
+            id: ws.user.id,
+            username: ws.user.username,
+            displayName: ws.user.displayName,
+            avatarUrl: ws.user.avatarUrl
+          }
+        }));
+
+        ws.send(JSON.stringify({
+          type: 'call_outgoing',
+          callId,
+          target: {
+            id: targetUser.id,
+            username: targetUser.username,
+            displayName: targetUser.displayName,
+            avatarUrl: targetUser.avatarUrl
+          }
+        }));
+        return;
+      } else if (parsed.type === 'call_decline') {
+        const active = activeVoiceCalls.get(ws.user.id);
+        if (active) {
+          const partnerClient = getClientByUserId(active.partnerId);
+          if (partnerClient) {
+            partnerClient.send(JSON.stringify({
+              type: 'call_declined',
+              callId: active.callId,
+              message: `@${ws.user.username} declined the call.`
+            }));
+          }
+          activeVoiceCalls.delete(ws.user.id);
+          activeVoiceCalls.delete(active.partnerId);
+        }
+        return;
+      } else if (parsed.type === 'call_accept') {
+        const active = activeVoiceCalls.get(ws.user.id);
+        if (active && active.callId === parsed.callId) {
+          active.status = 'connected';
+          const partnerActive = activeVoiceCalls.get(active.partnerId);
+          if (partnerActive) partnerActive.status = 'connected';
+
+          const partnerClient = getClientByUserId(active.partnerId);
+          if (partnerClient) {
+            partnerClient.send(JSON.stringify({
+              type: 'call_accepted',
+              callId: active.callId,
+              partner: {
+                id: ws.user.id,
+                username: ws.user.username,
+                displayName: ws.user.displayName,
+                avatarUrl: ws.user.avatarUrl
+              }
+            }));
+          }
+          ws.send(JSON.stringify({
+            type: 'call_connected',
+            callId: active.callId
+          }));
+        }
+        return;
+      } else if (parsed.type === 'webrtc_offer') {
+        const targetUserId = Number(parsed.targetUserId);
+        const targetClient = getClientByUserId(targetUserId);
+        if (targetClient) {
+          targetClient.send(JSON.stringify({
+            type: 'webrtc_offer',
+            callId: parsed.callId,
+            fromUserId: ws.user.id,
+            sdp: parsed.sdp
+          }));
+        }
+        return;
+      } else if (parsed.type === 'webrtc_answer') {
+        const targetUserId = Number(parsed.targetUserId);
+        const targetClient = getClientByUserId(targetUserId);
+        if (targetClient) {
+          targetClient.send(JSON.stringify({
+            type: 'webrtc_answer',
+            callId: parsed.callId,
+            fromUserId: ws.user.id,
+            sdp: parsed.sdp
+          }));
+        }
+        return;
+      } else if (parsed.type === 'webrtc_ice_candidate') {
+        const targetUserId = Number(parsed.targetUserId);
+        const targetClient = getClientByUserId(targetUserId);
+        if (targetClient) {
+          targetClient.send(JSON.stringify({
+            type: 'webrtc_ice_candidate',
+            callId: parsed.callId,
+            fromUserId: ws.user.id,
+            candidate: parsed.candidate
+          }));
+        }
+        return;
+      } else if (parsed.type === 'call_end') {
+        const active = activeVoiceCalls.get(ws.user.id);
+        if (active) {
+          const partnerClient = getClientByUserId(active.partnerId);
+          if (partnerClient) {
+            partnerClient.send(JSON.stringify({
+              type: 'call_ended',
+              callId: active.callId,
+              reason: 'hangup'
+            }));
+          }
+          ws.send(JSON.stringify({
+            type: 'call_ended',
+            callId: active.callId,
+            reason: 'hangup'
+          }));
+          activeVoiceCalls.delete(ws.user.id);
+          activeVoiceCalls.delete(active.partnerId);
+        }
+        return;
       } else if (parsed.type === 'server_shutdown') {
         if (!ws.user.isDeveloper) return;
         console.log(`[Voiceline] Shutdown initiated via WebSocket by @${ws.user.username}`);
@@ -1045,6 +1211,19 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     console.log(`[Voiceline] Connection closed for @${ws.user?.username || 'user'}`);
+    if (ws.user && activeVoiceCalls.has(ws.user.id)) {
+      const active = activeVoiceCalls.get(ws.user.id);
+      const partnerClient = getClientByUserId(active.partnerId);
+      if (partnerClient) {
+        partnerClient.send(JSON.stringify({
+          type: 'call_ended',
+          callId: active.callId,
+          reason: 'partner_disconnected'
+        }));
+      }
+      activeVoiceCalls.delete(ws.user.id);
+      activeVoiceCalls.delete(active.partnerId);
+    }
   });
 });
 
