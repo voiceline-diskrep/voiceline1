@@ -186,6 +186,12 @@
           <input type="text" id="profileDisplayNameInput" placeholder="Your display name" required maxlength="32" />
         </div>
 
+        <div class="form-group">
+          <label for="profileBioInput">ABOUT ME</label>
+          <textarea id="profileBioInput" placeholder="Tell others a little about yourself..." maxlength="300" rows="3" class="profile-bio-textarea"></textarea>
+          <div class="bio-char-count"><span id="bioCharCount">0</span>/300</div>
+        </div>
+
         <div class="auth-error" id="myProfileError"></div>
 
         <div class="modal-actions">
@@ -210,6 +216,14 @@
             <span class="dev-badge hidden" id="viewUserDevBadge">DEV</span>
           </div>
           <div class="user-card-handle" id="viewUserHandle">@username</div>
+          <div class="user-card-mutual-row" id="viewUserMutualRow">
+            <span class="mutual-text" id="viewUserMutualText">0 Mutual Friends • 0 Mutual Servers</span>
+          </div>
+        </div>
+
+        <div class="user-card-bio-section">
+          <div class="user-card-bio-label">ABOUT ME</div>
+          <div class="user-card-bio-text" id="viewUserBio">No bio yet.</div>
         </div>
 
         <div class="user-card-actions" id="viewUserActions">
@@ -424,7 +438,7 @@
 
         <div class="header-right">
           <!-- User Profile Capsule repeated in Friends layout header -->
-          <div class="user-capsule">
+          <div class="user-capsule" id="friendsUserCapsule" title="Click to edit your profile">
             <div class="user-avatar" id="currentUserAvatar2">U</div>
             <div class="user-meta">
               <div class="user-display-row">
@@ -446,7 +460,7 @@
         <!-- Tab 1: All Friends List -->
         <section class="friends-section" id="viewAllFriends">
           <div class="section-title-bar">
-            <span class="section-title-label">ALL FRIENDS � <span id="allFriendsCountText">0</span></span>
+            <span class="section-title-label">ALL FRIENDS — <span id="allFriendsCountText">0</span></span>
           </div>
           <div class="friends-cards-list" id="allFriendsList">
             <!-- Friend cards injected here -->
@@ -456,14 +470,14 @@
         <!-- Tab 2: Pending Requests -->
         <section class="friends-section hidden" id="viewPendingFriends">
           <div class="section-title-bar">
-            <span class="section-title-label">INCOMING REQUESTS � <span id="pendingIncomingCountText">0</span></span>
+            <span class="section-title-label">INCOMING REQUESTS — <span id="pendingIncomingCountText">0</span></span>
           </div>
           <div class="friends-cards-list" id="pendingIncomingList">
             <!-- Incoming requests injected here -->
           </div>
 
           <div class="section-title-bar mt-20">
-            <span class="section-title-label">OUTGOING REQUESTS � <span id="pendingOutgoingCountText">0</span></span>
+            <span class="section-title-label">OUTGOING REQUESTS — <span id="pendingOutgoingCountText">0</span></span>
           </div>
           <div class="friends-cards-list" id="pendingOutgoingList">
             <!-- Outgoing requests injected here -->
@@ -492,11 +506,15 @@
       <!-- Top Bar -->
       <header class="chat-header">
         <div class="header-left">
-          <div class="channel-info">
-            <div class="channel-hash">@</div>
-            <div class="channel-name" id="dmActiveFriendName">Friend</div>
-            <span class="dev-badge hidden" id="dmFriendDevBadge">DEV</span>
-            <div class="channel-desc" id="dmActiveFriendUsername">@friend</div>
+          <div class="dm-header-friend-info" id="dmHeaderFriendInfo" title="Click to view friend's profile">
+            <div class="user-avatar dm-header-avatar" id="dmHeaderAvatar">U</div>
+            <div class="channel-info">
+              <div class="user-display-row">
+                <div class="channel-name" id="dmActiveFriendName">Friend</div>
+                <span class="dev-badge hidden" id="dmFriendDevBadge">DEV</span>
+              </div>
+              <div class="channel-desc" id="dmActiveFriendUsername">@friend</div>
+            </div>
           </div>
         </div>
 
@@ -507,7 +525,7 @@
           </div>
 
           <!-- User Profile Capsule -->
-          <div class="user-capsule">
+          <div class="user-capsule" id="dmUserCapsule" title="Click to edit your profile">
             <div class="user-avatar" id="currentUserAvatar3">U</div>
             <div class="user-meta">
               <div class="user-display-row">

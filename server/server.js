@@ -423,7 +423,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 401, { error: 'Not authenticated' });
         }
 
-        const { displayName, avatarBase64, avatarFilename, removeAvatar } = await readJsonBody(req);
+        const { displayName, avatarBase64, avatarFilename, removeAvatar, bio } = await readJsonBody(req);
         const cleanDisplay = (displayName || '').trim();
         if (!cleanDisplay || cleanDisplay.length > 32) {
           return sendJson(res, 400, { error: 'Display name must be between 1 and 32 characters.' });
@@ -475,7 +475,8 @@ const server = http.createServer(async (req, res) => {
         const updatedUser = db.updateUserProfile({
           userId: user.id,
           displayName: cleanDisplay,
-          avatarUrl: newAvatarUrl
+          avatarUrl: newAvatarUrl,
+          bio: bio !== undefined ? bio : (user.bio || '')
         });
 
         broadcastAll({
@@ -485,6 +486,7 @@ const server = http.createServer(async (req, res) => {
             username: updatedUser.username,
             displayName: updatedUser.displayName,
             avatarUrl: updatedUser.avatarUrl,
+            bio: updatedUser.bio,
             isDeveloper: updatedUser.isDeveloper
           }
         });
@@ -507,6 +509,9 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 404, { error: 'User not found' });
         }
 
+        const mutualFriends = db.getMutualFriends(authUser.id, targetId);
+        const mutualServers = db.getMutualServers(authUser.id, targetId);
+
         return sendJson(res, 200, {
           success: true,
           user: {
@@ -514,8 +519,11 @@ const server = http.createServer(async (req, res) => {
             username: targetUser.username,
             displayName: targetUser.displayName,
             avatarUrl: targetUser.avatarUrl,
+            bio: targetUser.bio || '',
             isDeveloper: targetUser.isDeveloper
-          }
+          },
+          mutualFriends,
+          mutualServers
         });
       }
 

@@ -126,6 +126,11 @@ const messageInput = document.getElementById('messageInput');
 const shutdownNoticeOverlay = document.getElementById('shutdownNoticeOverlay');
 const shutdownNoticeMessage = document.getElementById('shutdownNoticeMessage');
 
+const dmHeaderFriendInfo = document.getElementById('dmHeaderFriendInfo');
+const dmHeaderAvatar = document.getElementById('dmHeaderAvatar');
+const dmUserCapsule = document.getElementById('dmUserCapsule');
+const friendsUserCapsule = document.getElementById('friendsUserCapsule');
+
 // DOM Elements - Profile Modals
 const myProfileModalOverlay = document.getElementById('myProfileModalOverlay');
 const myProfileForm = document.getElementById('myProfileForm');
@@ -135,6 +140,8 @@ const changeAvatarBtn = document.getElementById('changeAvatarBtn');
 const removeAvatarBtn = document.getElementById('removeAvatarBtn');
 const profileUsernameDisplay = document.getElementById('profileUsernameDisplay');
 const profileDisplayNameInput = document.getElementById('profileDisplayNameInput');
+const profileBioInput = document.getElementById('profileBioInput');
+const bioCharCount = document.getElementById('bioCharCount');
 const myProfileError = document.getElementById('myProfileError');
 const cancelMyProfileBtn = document.getElementById('cancelMyProfileBtn');
 
@@ -143,6 +150,9 @@ const viewUserAvatar = document.getElementById('viewUserAvatar');
 const viewUserDisplayName = document.getElementById('viewUserDisplayName');
 const viewUserDevBadge = document.getElementById('viewUserDevBadge');
 const viewUserHandle = document.getElementById('viewUserHandle');
+const viewUserMutualRow = document.getElementById('viewUserMutualRow');
+const viewUserMutualText = document.getElementById('viewUserMutualText');
+const viewUserBio = document.getElementById('viewUserBio');
 const viewUserMessageBtn = document.getElementById('viewUserMessageBtn');
 const closeUserProfileBtn = document.getElementById('closeUserProfileBtn');
 
@@ -459,6 +469,16 @@ document.querySelectorAll('.user-capsule').forEach(capsule => {
   });
 });
 
+['userCapsule', 'friendsUserCapsule', 'dmUserCapsule'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.logout-btn')) return;
+      openMyProfileModal();
+    });
+  }
+});
+
 function openMyProfileModal() {
   if (!currentUser) return;
   pendingAvatarBase64 = null;
@@ -468,6 +488,10 @@ function openMyProfileModal() {
 
   profileUsernameDisplay.value = currentUser.username;
   profileDisplayNameInput.value = currentUser.displayName || currentUser.username;
+  if (profileBioInput) {
+    profileBioInput.value = currentUser.bio || '';
+    if (bioCharCount) bioCharCount.textContent = (currentUser.bio || '').length;
+  }
 
   renderAvatarInto(myProfileAvatarPreview, currentUser);
 
@@ -479,6 +503,12 @@ function openMyProfileModal() {
 
   myProfileModalOverlay.classList.remove('hidden');
   profileDisplayNameInput.focus();
+}
+
+if (profileBioInput) {
+  profileBioInput.addEventListener('input', () => {
+    if (bioCharCount) bioCharCount.textContent = profileBioInput.value.length;
+  });
 }
 
 cancelMyProfileBtn.addEventListener('click', () => {
@@ -550,7 +580,8 @@ myProfileForm.addEventListener('submit', async (e) => {
   }
 
   const payload = {
-    displayName: newDisplayName
+    displayName: newDisplayName,
+    bio: profileBioInput ? profileBioInput.value.trim() : ''
   };
 
   if (pendingRemoveAvatar) {
@@ -595,6 +626,8 @@ async function openUserProfile(userId, fallbackInfo = null) {
   }
 
   let user = fallbackInfo;
+  let mutualFriends = [];
+  let mutualServers = [];
   try {
     const res = await fetch(`/api/users/${userId}`, {
       headers: { 'Authorization': `Bearer ${token}` }
@@ -602,6 +635,8 @@ async function openUserProfile(userId, fallbackInfo = null) {
     if (res.ok) {
       const data = await res.json();
       if (data.user) user = data.user;
+      if (data.mutualFriends) mutualFriends = data.mutualFriends;
+      if (data.mutualServers) mutualServers = data.mutualServers;
     }
   } catch (err) {
     console.error('Failed to fetch user profile:', err);
@@ -618,6 +653,18 @@ async function openUserProfile(userId, fallbackInfo = null) {
     viewUserDevBadge.classList.remove('hidden');
   } else {
     viewUserDevBadge.classList.add('hidden');
+  }
+
+  if (viewUserMutualText) {
+    const friendCount = (mutualFriends || []).length;
+    const serverCount = (mutualServers || []).length;
+    const friendText = friendCount === 1 ? '1 Mutual Friend' : `${friendCount} Mutual Friends`;
+    const serverText = serverCount === 1 ? '1 Mutual Server' : `${serverCount} Mutual Servers`;
+    viewUserMutualText.textContent = `${friendText} • ${serverText}`;
+  }
+
+  if (viewUserBio) {
+    viewUserBio.textContent = (user.bio && user.bio.trim()) ? user.bio : 'No bio yet.';
   }
 
   userProfileModalOverlay.classList.remove('hidden');
@@ -740,13 +787,16 @@ function switchToDmView(friend) {
   dmLayout.classList.remove('hidden');
 
   // Update header & welcome
-  dmActiveFriendName.textContent = friend.displayName || friend.username;
-  dmActiveFriendName.style.cursor = 'pointer';
-  dmActiveFriendName.onclick = () => openUserProfile(friend.id, friend);
+  if (dmHeaderAvatar) {
+    renderAvatarInto(dmHeaderAvatar, friend);
+  }
 
+  if (dmHeaderFriendInfo) {
+    dmHeaderFriendInfo.onclick = () => openUserProfile(friend.id, friend);
+  }
+
+  dmActiveFriendName.textContent = friend.displayName || friend.username;
   dmActiveFriendUsername.textContent = '@' + friend.username;
-  dmActiveFriendUsername.style.cursor = 'pointer';
-  dmActiveFriendUsername.onclick = () => openUserProfile(friend.id, friend);
 
   if (friend.isDeveloper) {
     dmFriendDevBadge.classList.remove('hidden');
@@ -1680,6 +1730,7 @@ function connectWebSocket() {
           activeDmFriend = { ...activeDmFriend, ...msg.user };
           dmActiveFriendName.textContent = activeDmFriend.displayName || activeDmFriend.username;
           dmWelcomeTitle.textContent = activeDmFriend.displayName || activeDmFriend.username;
+          if (dmHeaderAvatar) renderAvatarInto(dmHeaderAvatar, activeDmFriend);
         }
         loadFriends();
       } else if (msg.type === 'server_code_updated') {
@@ -1817,11 +1868,12 @@ function appendDmMessage(msg, shouldScroll = true) {
     </div>
   `;
 
-  if (msg.authorId) {
+  const authorId = msg.authorId || msg.senderId;
+  if (authorId) {
     item.querySelectorAll('.clickable-user').forEach(el => {
       el.addEventListener('click', () => {
-        openUserProfile(msg.authorId, {
-          id: msg.authorId,
+        openUserProfile(authorId, {
+          id: authorId,
           displayName: authorName,
           username: msg.authorUsername,
           avatarUrl: msg.authorAvatarUrl,

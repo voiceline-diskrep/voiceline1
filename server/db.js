@@ -90,6 +90,7 @@ db.exec(`
 try { db.exec(`ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 1;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN channel_id INTEGER DEFAULT 1;`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN bio TEXT DEFAULT '';`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_id INTEGER;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_name TEXT;`); } catch {}
 try { db.exec(`ALTER TABLE messages ADD COLUMN author_username TEXT;`); } catch {}
@@ -192,7 +193,7 @@ function verifyPassword(password, salt, storedHash) {
 
 // User Operations
 const getUserByUsernameStmt = db.prepare(`
-  SELECT id, username, display_name, avatar_url, password_hash, password_salt, is_developer, created_at
+  SELECT id, username, display_name, avatar_url, bio, password_hash, password_salt, is_developer, created_at
   FROM users
   WHERE username = ?
 `);
@@ -204,12 +205,13 @@ function getUserByUsername(username) {
   return {
     ...row,
     avatarUrl: row.avatar_url || null,
+    bio: row.bio || '',
     isDeveloper: Boolean(row.is_developer)
   };
 }
 
 const getUserByIdStmt = db.prepare(`
-  SELECT id, username, display_name, avatar_url, is_developer, created_at
+  SELECT id, username, display_name, avatar_url, bio, is_developer, created_at
   FROM users
   WHERE id = ?
 `);
@@ -223,6 +225,7 @@ function getUserById(id) {
     username: row.username,
     displayName: row.display_name,
     avatarUrl: row.avatar_url || null,
+    bio: row.bio || '',
     isDeveloper: Boolean(row.is_developer),
     createdAt: row.created_at
   };
@@ -293,6 +296,7 @@ function authenticateUser(username, password) {
     username: user.username,
     displayName: user.display_name,
     avatarUrl: user.avatarUrl || null,
+    bio: user.bio || '',
     isDeveloper: Boolean(user.is_developer)
   };
 }
@@ -304,7 +308,7 @@ const insertSessionStmt = db.prepare(`
 `);
 
 const getUserByTokenStmt = db.prepare(`
-  SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_developer
+  SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio, u.is_developer
   FROM sessions s
   JOIN users u ON s.user_id = u.id
   WHERE s.token = ?
@@ -329,20 +333,22 @@ function getUserByToken(token) {
     username: row.username,
     displayName: row.display_name,
     avatarUrl: row.avatar_url || null,
+    bio: row.bio || '',
     isDeveloper: Boolean(row.is_developer)
   };
 }
 
 const updateUserProfileStmt = db.prepare(`
-  UPDATE users SET display_name = ?, avatar_url = ? WHERE id = ?
+  UPDATE users SET display_name = ?, avatar_url = ?, bio = ? WHERE id = ?
 `);
 
-function updateUserProfile({ userId, displayName, avatarUrl }) {
+function updateUserProfile({ userId, displayName, avatarUrl, bio }) {
   const cleanDisplay = (displayName || '').trim().slice(0, 32);
   if (!cleanDisplay) {
     throw new Error('Display name cannot be empty.');
   }
-  updateUserProfileStmt.run(cleanDisplay, avatarUrl !== undefined ? avatarUrl : null, Number(userId));
+  const cleanBio = (bio !== undefined && bio !== null) ? String(bio).trim().slice(0, 300) : '';
+  updateUserProfileStmt.run(cleanDisplay, avatarUrl !== undefined ? avatarUrl : null, cleanBio, Number(userId));
   return getUserById(userId);
 }
 
@@ -852,6 +858,7 @@ function saveDirectMessage({ senderId, receiverId, content }) {
     id: Number(result.lastInsertRowid),
     senderId: sId,
     receiverId: rId,
+    authorId: sId,
     authorName: sender ? sender.displayName : 'Unknown',
     authorUsername: sender ? sender.username : 'user',
     authorAvatarUrl: sender ? sender.avatarUrl : null,
@@ -865,6 +872,7 @@ const getDirectMessagesStmt = db.prepare(`
   SELECT 
     dm.id,
     dm.sender_id AS senderId,
+    dm.sender_id AS authorId,
     dm.receiver_id AS receiverId,
     u.display_name AS authorName,
     u.username AS authorUsername,
@@ -888,6 +896,49 @@ function getDirectMessagesHistory(userId, friendId, limit = 50) {
     authorAvatarUrl: r.authorAvatarUrl || null,
     isDeveloper: Boolean(r.isDeveloper)
   }));
+}
+
+// Mutual Friends and Mutual Servers
+const getMutualFriendsStmt = db.prepare(`
+  SELECT u.id, u.username, u.display_name AS displayName, u.avatar_url AS avatarUrl
+  FROM users u
+  WHERE u.id != ? AND u.id != ?
+    AND u.id IN (
+      SELECT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
+      FROM friendships WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'
+    )
+    AND u.id IN (
+      SELECT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
+      FROM friendships WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'
+    )
+  ORDER BY u.display_name ASC
+`);
+
+function getMutualFriends(userId1, userId2) {
+  const u1 = Number(userId1);
+  const u2 = Number(userId2);
+  if (!u1 || !u2 || u1 === u2) return [];
+  return getMutualFriendsStmt.all(u1, u2, u1, u1, u1, u2, u2, u2).map(r => ({
+    id: r.id,
+    username: r.username,
+    displayName: r.displayName,
+    avatarUrl: r.avatarUrl || null
+  }));
+}
+
+const getMutualServersStmt = db.prepare(`
+  SELECT s.id, s.name
+  FROM servers s
+  JOIN server_members sm1 ON s.id = sm1.server_id AND sm1.user_id = ?
+  JOIN server_members sm2 ON s.id = sm2.server_id AND sm2.user_id = ?
+  ORDER BY s.id ASC
+`);
+
+function getMutualServers(userId1, userId2) {
+  const u1 = Number(userId1);
+  const u2 = Number(userId2);
+  if (!u1 || !u2 || u1 === u2) return [];
+  return getMutualServersStmt.all(u1, u2);
 }
 
 module.exports = {
@@ -919,6 +970,8 @@ module.exports = {
   updateUserProfile,
   saveDirectMessage,
   getDirectMessagesHistory,
+  getMutualFriends,
+  getMutualServers,
   saveMessage,
   getRecentMessages
 };
