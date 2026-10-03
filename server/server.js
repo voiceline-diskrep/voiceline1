@@ -1175,6 +1175,18 @@ wss.on('connection', (ws, req) => {
           }));
         }
         return;
+      } else if (parsed.type === 'video_state') {
+        const targetUserId = Number(parsed.targetUserId);
+        const targetClient = getClientByUserId(targetUserId);
+        if (targetClient) {
+          targetClient.send(JSON.stringify({
+            type: 'video_state',
+            callId: parsed.callId,
+            fromUserId: ws.user.id,
+            enabled: Boolean(parsed.enabled)
+          }));
+        }
+        return;
       } else if (parsed.type === 'call_end') {
         const active = activeVoiceCalls.get(ws.user.id);
         if (active) {

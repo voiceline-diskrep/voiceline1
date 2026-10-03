@@ -227,7 +227,18 @@
         </div>
 
         <div class="user-card-actions" id="viewUserActions">
-          <button type="button" class="primary-btn btn-full" id="viewUserMessageBtn">Direct Message</button>
+          <button type="button" class="primary-btn btn-action-with-icon" id="viewUserMessageBtn" title="Direct Message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2z"/>
+            </svg>
+            <span>Message</span>
+          </button>
+          <button type="button" class="btn-call-profile" id="viewUserCallBtn" title="Start Call">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-1-1z"/>
+            </svg>
+            <span>Call</span>
+          </button>
         </div>
         <div class="modal-actions mt-15">
           <button type="button" class="secondary-btn btn-full" id="closeUserProfileBtn">Close</button>
@@ -778,8 +789,97 @@
           </svg>
           <span id="callMuteBtnLabel">Mute</span>
         </button>
-        <button type="button" class="call-action-btn hangup-btn" id="callHangupBtn" title="End Voice Call">
+        <button type="button" class="call-action-btn camera-btn" id="callCameraBtn" title="Toggle Camera">
+          <svg id="cameraIconOff" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27l4.78 4.78c-.46.25-.78.74-.78 1.3v9c0 .55.45 1 1 1h12c.38 0 .71-.15.96-.39l2.77 2.77L22 20.73 3.27 2zM16 17H5.27l10.73-10.73V17z"/>
+          </svg>
+          <svg id="cameraIconOn" class="hidden" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+          </svg>
+          <span id="callCameraBtnLabel">Camera</span>
+        </button>
+        <button type="button" class="call-action-btn expand-btn" id="callExpandTheaterBtn" title="Expand Video View">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+          </svg>
+        </button>
+        <button type="button" class="call-action-btn hangup-btn" id="callHangupBtn" title="End Call">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+          <span>End Call</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Video Call Theater Screen / Modal -->
+  <div class="modal-overlay hidden" id="activeCallTheaterOverlay">
+    <div class="video-theater-card">
+      <!-- Theater Header -->
+      <div class="video-theater-header">
+        <div class="theater-user-meta">
+          <span class="theater-partner-name" id="theaterPartnerName">Friend</span>
+          <span class="theater-partner-handle" id="theaterPartnerHandle">@friend</span>
+          <span class="theater-status-badge" id="theaterStatusBadge">Connected</span>
+          <span class="theater-timer" id="theaterTimerText">00:00</span>
+        </div>
+        <div class="theater-header-actions">
+          <button type="button" class="theater-icon-btn" id="theaterMinimizeBtn" title="Minimize to dock">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-14v3h3v2h-5V5h2z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Theater Stage -->
+      <div class="video-theater-stage">
+        <!-- Main Remote Feed -->
+        <div class="remote-video-container">
+          <video id="remoteVideoFeed" class="remote-video-el hidden" autoplay playsinline></video>
+          <div class="remote-cam-off-state" id="remoteCameraOffState">
+            <div class="user-avatar theater-avatar" id="theaterPartnerAvatar">U</div>
+            <h3 class="theater-cam-off-title" id="theaterCamOffTitle">Friend</h3>
+            <p class="theater-cam-off-sub" id="theaterCamOffSub">Camera is off</p>
+          </div>
+        </div>
+
+        <!-- Self-View Picture-in-Picture (PiP) -->
+        <div class="self-pip-container" id="selfPipContainer" title="Your camera preview">
+          <video id="localVideoFeed" class="local-video-el hidden" autoplay playsinline muted></video>
+          <div class="self-pip-off-state" id="selfCameraOffState">
+            <div class="user-avatar self-pip-avatar" id="selfPipAvatar">U</div>
+            <span class="self-pip-label">Your camera is off</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Theater Control Bar -->
+      <div class="video-theater-controls">
+        <button type="button" class="theater-control-btn mute-btn" id="theaterMuteBtn" title="Mute Microphone">
+          <svg id="theaterMicIconUnmuted" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <svg id="theaterMicIconMuted" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c1.33-.19 2.53-.78 3.53-1.62l3.2 3.2 1.27-1.27L4.27 3z"/>
+          </svg>
+          <span id="theaterMuteBtnLabel">Mute</span>
+        </button>
+
+        <button type="button" class="theater-control-btn camera-btn" id="theaterCameraBtn" title="Toggle Camera">
+          <svg id="theaterCameraIconOff" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27l4.78 4.78c-.46.25-.78.74-.78 1.3v9c0 .55.45 1 1 1h12c.38 0 .71-.15.96-.39l2.77 2.77L22 20.73 3.27 2zM16 17H5.27l10.73-10.73V17z"/>
+          </svg>
+          <svg id="theaterCameraIconOn" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+          </svg>
+          <span id="theaterCameraBtnLabel">Turn On Camera</span>
+        </button>
+
+        <button type="button" class="theater-control-btn hangup-btn" id="theaterHangupBtn" title="End Call">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
             <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
           </svg>
           <span>End Call</span>

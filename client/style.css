@@ -2718,3 +2718,371 @@ body {
   box-shadow: 0 2px 8px rgba(237, 66, 69, 0.4);
 }
 
+/* Camera toggle button in active call floating widget */
+.call-action-btn.camera-btn {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-normal);
+}
+
+.call-action-btn.camera-btn:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.call-action-btn.camera-btn.is-active {
+  background-color: rgba(59, 165, 92, 0.2);
+  color: #3ba55c;
+  border: 1px solid rgba(59, 165, 92, 0.4);
+}
+
+.call-action-btn.expand-btn {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-normal);
+  padding: 7px 9px;
+}
+
+.call-action-btn.expand-btn:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+/* ==========================================================================
+   Video Call Theater Modal (Stage 3c-2)
+   ========================================================================== */
+.video-theater-card {
+  width: 900px;
+  max-width: 95vw;
+  height: 640px;
+  max-height: 90vh;
+  background-color: #1e1f22;
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  animation: popIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.2);
+}
+
+.video-theater-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background-color: #2b2d31;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.theater-user-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theater-partner-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-normal);
+}
+
+.theater-partner-handle {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.theater-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #3ba55c;
+  background-color: rgba(59, 165, 92, 0.15);
+  border: 1px solid rgba(59, 165, 92, 0.3);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.theater-timer {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.theater-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theater-icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.theater-icon-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-normal);
+}
+
+/* Theater Stage */
+.video-theater-stage {
+  flex: 1;
+  position: relative;
+  background-color: #111214;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remote-video-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.remote-video-el {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background-color: #000;
+}
+
+.remote-cam-off-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 40px;
+}
+
+.theater-avatar {
+  width: 96px;
+  height: 96px;
+  font-size: 38px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.theater-cam-off-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-normal);
+  margin: 0;
+}
+
+.theater-cam-off-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Self-View Picture-in-Picture (PiP) */
+.self-pip-container {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 190px;
+  height: 125px;
+  border-radius: 10px;
+  overflow: hidden;
+  background-color: #1e1f22;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.self-pip-container:hover {
+  transform: scale(1.03);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.8);
+}
+
+.local-video-el {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror camera for natural look */
+  background-color: #000;
+}
+
+.self-pip-off-state {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background-color: #2b2d31;
+  padding: 10px;
+  text-align: center;
+}
+
+.self-pip-avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+  border-radius: 50%;
+}
+
+.self-pip-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Theater Bottom Control Bar */
+.video-theater-controls {
+  padding: 16px 24px;
+  background-color: #2b2d31;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.theater-control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.theater-control-btn.mute-btn {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-normal);
+}
+
+.theater-control-btn.mute-btn:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.theater-control-btn.mute-btn.is-muted {
+  background-color: rgba(237, 66, 69, 0.2);
+  color: var(--danger);
+  border: 1px solid rgba(237, 66, 69, 0.4);
+}
+
+.theater-control-btn.camera-btn {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-normal);
+}
+
+.theater-control-btn.camera-btn:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.theater-control-btn.camera-btn.is-active {
+  background-color: #3ba55c;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(59, 165, 92, 0.4);
+}
+
+.theater-control-btn.hangup-btn {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.theater-control-btn.hangup-btn:hover {
+  background-color: #c93b3e;
+  box-shadow: 0 2px 10px rgba(237, 66, 69, 0.4);
+}
+
+/* SVG Action Buttons in Friend Lists & Popovers */
+.btn-friend-icon-action {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+}
+
+.btn-friend-icon-action:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+  color: var(--text-normal);
+  transform: scale(1.05);
+}
+
+.btn-friend-icon-action.btn-call-icon:hover {
+  background-color: #3ba55c;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(59, 165, 92, 0.35);
+}
+
+.btn-friend-icon-action.btn-msg-icon:hover {
+  background-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(88, 101, 242, 0.35);
+}
+
+.btn-friend-icon-action.btn-remove-icon:hover {
+  background-color: var(--danger);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(237, 66, 69, 0.35);
+}
+
+.user-card-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-action-with-icon {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.btn-call-profile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background-color: rgba(59, 165, 92, 0.15);
+  color: #3ba55c;
+  border: 1px solid rgba(59, 165, 92, 0.35);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-call-profile:hover {
+  background-color: #3ba55c;
+  color: #fff;
+}
+
+

@@ -215,6 +215,39 @@ const micIconMuted = document.getElementById('micIconMuted');
 const callHangupBtn = document.getElementById('callHangupBtn');
 const remoteVoiceAudio = document.getElementById('remoteVoiceAudio');
 
+// Video Calling DOM Elements (Stage 3c-2)
+const callCameraBtn = document.getElementById('callCameraBtn');
+const callCameraBtnLabel = document.getElementById('callCameraBtnLabel');
+const cameraIconOff = document.getElementById('cameraIconOff');
+const cameraIconOn = document.getElementById('cameraIconOn');
+const callExpandTheaterBtn = document.getElementById('callExpandTheaterBtn');
+
+const activeCallTheaterOverlay = document.getElementById('activeCallTheaterOverlay');
+const theaterPartnerName = document.getElementById('theaterPartnerName');
+const theaterPartnerHandle = document.getElementById('theaterPartnerHandle');
+const theaterStatusBadge = document.getElementById('theaterStatusBadge');
+const theaterTimerText = document.getElementById('theaterTimerText');
+const theaterPartnerAvatar = document.getElementById('theaterPartnerAvatar');
+const theaterCamOffTitle = document.getElementById('theaterCamOffTitle');
+const theaterCamOffSub = document.getElementById('theaterCamOffSub');
+const remoteVideoFeed = document.getElementById('remoteVideoFeed');
+const remoteCameraOffState = document.getElementById('remoteCameraOffState');
+const selfPipContainer = document.getElementById('selfPipContainer');
+const localVideoFeed = document.getElementById('localVideoFeed');
+const selfCameraOffState = document.getElementById('selfCameraOffState');
+const selfPipAvatar = document.getElementById('selfPipAvatar');
+const theaterMuteBtn = document.getElementById('theaterMuteBtn');
+const theaterMuteBtnLabel = document.getElementById('theaterMuteBtnLabel');
+const theaterMicIconUnmuted = document.getElementById('theaterMicIconUnmuted');
+const theaterMicIconMuted = document.getElementById('theaterMicIconMuted');
+const theaterCameraBtn = document.getElementById('theaterCameraBtn');
+const theaterCameraBtnLabel = document.getElementById('theaterCameraBtnLabel');
+const theaterCameraIconOff = document.getElementById('theaterCameraIconOff');
+const theaterCameraIconOn = document.getElementById('theaterCameraIconOn');
+const theaterHangupBtn = document.getElementById('theaterHangupBtn');
+const theaterMinimizeBtn = document.getElementById('theaterMinimizeBtn');
+const viewUserCallBtn = document.getElementById('viewUserCallBtn');
+
 // State
 let currentUser = null;
 let token = localStorage.getItem('voiceline_token');
@@ -839,6 +872,16 @@ viewUserMessageBtn.addEventListener('click', () => {
   switchToDmView(target);
 });
 
+if (viewUserCallBtn) {
+  viewUserCallBtn.addEventListener('click', () => {
+    if (!viewedUserProfile) return;
+    const target = viewedUserProfile;
+    userProfileModalOverlay.classList.add('hidden');
+    viewedUserProfile = null;
+    initiateVoiceCall(target);
+  });
+}
+
 // Check session on boot
 async function checkCurrentSession() {
   if (!token) {
@@ -1143,9 +1186,21 @@ function renderFriendsUI() {
           </div>
         </div>
         <div class="friend-actions">
-          <button type="button" class="btn-friend-action btn-call-friend" title="Voice Call Friend">Call</button>
-          <button type="button" class="btn-friend-action btn-message-friend" title="Message Friend">Message</button>
-          <button type="button" class="btn-friend-action btn-remove-friend" title="Remove Friend">Remove</button>
+          <button type="button" class="btn-friend-icon-action btn-call-icon" title="Voice or Video Call">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-1-1z"/>
+            </svg>
+          </button>
+          <button type="button" class="btn-friend-icon-action btn-msg-icon" title="Direct Message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2z"/>
+            </svg>
+          </button>
+          <button type="button" class="btn-friend-icon-action btn-remove-icon" title="Remove Friend">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
         </div>
       `;
 
@@ -1153,17 +1208,17 @@ function renderFriendsUI() {
         openUserProfile(f.id, f);
       });
 
-      card.querySelector('.btn-call-friend').addEventListener('click', (e) => {
+      card.querySelector('.btn-call-icon').addEventListener('click', (e) => {
         e.stopPropagation();
         initiateVoiceCall(f);
       });
 
-      card.querySelector('.btn-message-friend').addEventListener('click', (e) => {
+      card.querySelector('.btn-msg-icon').addEventListener('click', (e) => {
         e.stopPropagation();
         switchToDmView(f);
       });
 
-      card.querySelector('.btn-remove-friend').addEventListener('click', (e) => {
+      card.querySelector('.btn-remove-icon').addEventListener('click', (e) => {
         e.stopPropagation();
         handleRemoveFriend(f.id, f.displayName || f.username);
       });
@@ -2241,6 +2296,8 @@ function connectWebSocket() {
         handleWebRtcAnswer(msg);
       } else if (msg.type === 'webrtc_ice_candidate') {
         handleWebRtcIceCandidate(msg);
+      } else if (msg.type === 'video_state') {
+        handleRemoteVideoState(msg);
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -2659,25 +2716,29 @@ let currentCall = {
   status: 'idle', // 'idle' | 'calling' | 'ringing' | 'connected'
   peerConnection: null,
   localStream: null,
-  remoteStream: null,
+  localVideoTrack: null,
+  videoSender: null,
+  isVideoEnabled: false,
+  remoteVideoEnabled: false,
   isMuted: false,
+  isTheaterOpen: false,
   timerInterval: null,
   seconds: 0
 };
 
 let pendingIceCandidates = [];
 
-// Start an outgoing voice call
+// Start an outgoing voice/video call
 async function initiateVoiceCall(friend) {
   if (!friend || !friend.id) return;
 
   if (currentCall.status !== 'idle') {
-    alert('You are already in a voice call.');
+    alert('You are already in a call.');
     return;
   }
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    alert('Voice calling requires microphone access, which is not supported in this browser or over insecure HTTP. Use localhost or HTTPS.');
+    alert('Voice and video calling requires device access, which is not supported in this browser or over insecure HTTP. Use localhost or HTTPS.');
     return;
   }
 
@@ -2692,6 +2753,8 @@ async function initiateVoiceCall(friend) {
   currentCall.role = 'caller';
   currentCall.status = 'calling';
   currentCall.isMuted = false;
+  currentCall.isVideoEnabled = false;
+  currentCall.remoteVideoEnabled = false;
   pendingIceCandidates = [];
 
   // Show active call widget in "Calling..." state
@@ -2700,6 +2763,7 @@ async function initiateVoiceCall(friend) {
   callStatusText.textContent = 'Calling...';
   callTimerText.textContent = '00:00';
   updateMuteButtonUI();
+  updateCameraButtonsUI();
   activeCallWidget.classList.remove('hidden');
 
   startOutgoingRingtone();
@@ -2736,6 +2800,8 @@ function handleIncomingCall(msg) {
   currentCall.partner = msg.caller;
   currentCall.role = 'callee';
   currentCall.status = 'ringing';
+  currentCall.isVideoEnabled = false;
+  currentCall.remoteVideoEnabled = false;
   pendingIceCandidates = [];
 
   renderAvatarInto(incomingCallAvatar, msg.caller);
@@ -2754,7 +2820,7 @@ async function acceptIncomingCall() {
   incomingCallModalOverlay.classList.add('hidden');
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    alert('Voice calling requires microphone access, which is not supported in this browser or over insecure HTTP.');
+    alert('Calling requires microphone access, which is not supported in this browser or over insecure HTTP.');
     declineIncomingCall();
     return;
   }
@@ -2773,6 +2839,7 @@ async function acceptIncomingCall() {
   callStatusText.textContent = 'Connecting...';
   callTimerText.textContent = '00:00';
   updateMuteButtonUI();
+  updateCameraButtonsUI();
   activeCallWidget.classList.remove('hidden');
 
   setupPeerConnection();
@@ -2865,11 +2932,11 @@ function handleCallEnded(msg) {
 function handleCallError(msg) {
   stopAllRingtones();
   playCallChime('end');
-  alert(msg.message || 'Could not place voice call.');
+  alert(msg.message || 'Could not place call.');
   endVoiceCall(false);
 }
 
-// Setup RTCPeerConnection and audio streams
+// Setup RTCPeerConnection and audio/video streams
 function setupPeerConnection() {
   if (currentCall.peerConnection) {
     try { currentCall.peerConnection.close(); } catch {}
@@ -2878,10 +2945,25 @@ function setupPeerConnection() {
   const pc = new RTCPeerConnection(rtcConfig);
   currentCall.peerConnection = pc;
 
+  // Add transceivers for both audio and video upfront
+  pc.addTransceiver('audio', { direction: 'sendrecv' });
+  const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+  currentCall.videoSender = videoTransceiver.sender;
+
   if (currentCall.localStream) {
-    currentCall.localStream.getTracks().forEach(track => {
-      pc.addTrack(track, currentCall.localStream);
-    });
+    const audioTrack = currentCall.localStream.getAudioTracks()[0];
+    if (audioTrack) {
+      const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio') || pc.getTransceivers()[0].sender;
+      if (audioSender) {
+        audioSender.replaceTrack(audioTrack);
+      } else {
+        pc.addTrack(audioTrack, currentCall.localStream);
+      }
+    }
+  }
+
+  if (currentCall.localVideoTrack && currentCall.videoSender) {
+    currentCall.videoSender.replaceTrack(currentCall.localVideoTrack);
   }
 
   pc.onicecandidate = (event) => {
@@ -2896,11 +2978,23 @@ function setupPeerConnection() {
   };
 
   pc.ontrack = (event) => {
-    if (event.streams && event.streams[0]) {
-      currentCall.remoteStream = event.streams[0];
-      if (remoteVoiceAudio) {
-        remoteVoiceAudio.srcObject = event.streams[0];
-        remoteVoiceAudio.play().catch(e => console.log('Audio autoplay prevented:', e));
+    if (event.track.kind === 'audio') {
+      if (event.streams && event.streams[0]) {
+        currentCall.remoteStream = event.streams[0];
+        if (remoteVoiceAudio) {
+          remoteVoiceAudio.srcObject = event.streams[0];
+          remoteVoiceAudio.play().catch(e => console.log('Audio autoplay prevented:', e));
+        }
+      }
+    } else if (event.track.kind === 'video') {
+      if (event.streams && event.streams[0]) {
+        if (remoteVideoFeed) {
+          remoteVideoFeed.srcObject = event.streams[0];
+          remoteVideoFeed.play().catch(e => console.log('Video autoplay prevented:', e));
+          remoteVideoFeed.classList.remove('hidden');
+          if (remoteCameraOffState) remoteCameraOffState.classList.add('hidden');
+          currentCall.remoteVideoEnabled = true;
+        }
       }
     }
   };
@@ -2990,6 +3084,7 @@ async function flushPendingIceCandidates() {
 function onCallEstablished() {
   currentCall.status = 'connected';
   callStatusText.textContent = 'Connected';
+  if (theaterStatusBadge) theaterStatusBadge.textContent = 'Connected';
 
   if (!currentCall.timerInterval) {
     currentCall.seconds = 0;
@@ -2997,9 +3092,142 @@ function onCallEstablished() {
       currentCall.seconds++;
       const mins = String(Math.floor(currentCall.seconds / 60)).padStart(2, '0');
       const secs = String(currentCall.seconds % 60).padStart(2, '0');
-      callTimerText.textContent = `${mins}:${secs}`;
+      const timeStr = `${mins}:${secs}`;
+      callTimerText.textContent = timeStr;
+      if (theaterTimerText) theaterTimerText.textContent = timeStr;
     }, 1000);
   }
+}
+
+// Toggle Camera (Turn video on/off dynamically via replaceTrack)
+async function toggleCamera() {
+  if (currentCall.status !== 'connected' && currentCall.status !== 'calling' && currentCall.status !== 'ringing') {
+    return;
+  }
+
+  if (currentCall.isVideoEnabled) {
+    // Turn camera OFF
+    if (currentCall.localVideoTrack) {
+      try { currentCall.localVideoTrack.stop(); } catch {}
+      currentCall.localVideoTrack = null;
+    }
+
+    currentCall.isVideoEnabled = false;
+
+    if (currentCall.videoSender) {
+      try { await currentCall.videoSender.replaceTrack(null); } catch {}
+    }
+
+    if (localVideoFeed) {
+      localVideoFeed.srcObject = null;
+      localVideoFeed.classList.add('hidden');
+    }
+    if (selfCameraOffState) selfCameraOffState.classList.remove('hidden');
+
+    updateCameraButtonsUI();
+
+    if (socket && socket.readyState === WebSocket.OPEN && currentCall.callId && currentCall.partner) {
+      socket.send(JSON.stringify({
+        type: 'video_state',
+        callId: currentCall.callId,
+        targetUserId: currentCall.partner.id,
+        enabled: false
+      }));
+    }
+  } else {
+    // Turn camera ON
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Camera access is not supported by your browser in this context (requires localhost or HTTPS). Audio call continues normally.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new Error('No video track available');
+
+      currentCall.localVideoTrack = track;
+      currentCall.isVideoEnabled = true;
+
+      if (localVideoFeed) {
+        localVideoFeed.srcObject = stream;
+        localVideoFeed.classList.remove('hidden');
+      }
+      if (selfCameraOffState) selfCameraOffState.classList.add('hidden');
+
+      if (currentCall.videoSender) {
+        await currentCall.videoSender.replaceTrack(track);
+      } else if (currentCall.peerConnection) {
+        currentCall.videoSender = currentCall.peerConnection.addTrack(track, stream);
+      }
+
+      updateCameraButtonsUI();
+
+      if (socket && socket.readyState === WebSocket.OPEN && currentCall.callId && currentCall.partner) {
+        socket.send(JSON.stringify({
+          type: 'video_state',
+          callId: currentCall.callId,
+          targetUserId: currentCall.partner.id,
+          enabled: true
+        }));
+      }
+
+      // Automatically open the video theater mode when turning on camera
+      openVideoTheater();
+    } catch (err) {
+      console.warn('Camera access failed:', err);
+      alert('Could not access camera (' + (err.message || 'no camera found or permission denied') + ').\n\nAudio call continues normally.');
+    }
+  }
+}
+
+// Handle remote peer toggling camera on or off
+function handleRemoteVideoState(msg) {
+  currentCall.remoteVideoEnabled = Boolean(msg.enabled);
+  if (msg.enabled) {
+    if (remoteVideoFeed) remoteVideoFeed.classList.remove('hidden');
+    if (remoteCameraOffState) remoteCameraOffState.classList.add('hidden');
+    openVideoTheater();
+  } else {
+    if (remoteVideoFeed) remoteVideoFeed.classList.add('hidden');
+    if (remoteCameraOffState) remoteCameraOffState.classList.remove('hidden');
+  }
+}
+
+// Open Video Theater Modal
+function openVideoTheater() {
+  if (!currentCall.partner || !activeCallTheaterOverlay) return;
+  activeCallTheaterOverlay.classList.remove('hidden');
+  currentCall.isTheaterOpen = true;
+
+  theaterPartnerName.textContent = currentCall.partner.displayName || currentCall.partner.username;
+  theaterPartnerHandle.textContent = '@' + currentCall.partner.username;
+  theaterCamOffTitle.textContent = currentCall.partner.displayName || currentCall.partner.username;
+  renderAvatarInto(theaterPartnerAvatar, currentCall.partner);
+  if (currentUser && selfPipAvatar) renderAvatarInto(selfPipAvatar, currentUser);
+
+  // Sync remote video vs placeholder
+  if (currentCall.remoteVideoEnabled) {
+    if (remoteVideoFeed) remoteVideoFeed.classList.remove('hidden');
+    if (remoteCameraOffState) remoteCameraOffState.classList.add('hidden');
+  } else {
+    if (remoteVideoFeed) remoteVideoFeed.classList.add('hidden');
+    if (remoteCameraOffState) remoteCameraOffState.classList.remove('hidden');
+  }
+
+  // Sync self preview vs placeholder
+  if (currentCall.isVideoEnabled && currentCall.localVideoTrack) {
+    if (localVideoFeed) localVideoFeed.classList.remove('hidden');
+    if (selfCameraOffState) selfCameraOffState.classList.add('hidden');
+  } else {
+    if (localVideoFeed) localVideoFeed.classList.add('hidden');
+    if (selfCameraOffState) selfCameraOffState.classList.remove('hidden');
+  }
+}
+
+function closeVideoTheater() {
+  if (activeCallTheaterOverlay) activeCallTheaterOverlay.classList.add('hidden');
+  currentCall.isTheaterOpen = false;
 }
 
 // Toggle Mute / Unmute
@@ -3014,20 +3242,68 @@ function toggleMute() {
 }
 
 function updateMuteButtonUI() {
-  if (currentCall.isMuted) {
-    callMuteBtn.classList.add('is-muted');
-    micIconUnmuted.classList.add('hidden');
-    micIconMuted.classList.remove('hidden');
-    callMuteBtnLabel.textContent = 'Unmute';
+  const muted = currentCall.isMuted;
+  if (muted) {
+    if (callMuteBtn) {
+      callMuteBtn.classList.add('is-muted');
+      micIconUnmuted.classList.add('hidden');
+      micIconMuted.classList.remove('hidden');
+      callMuteBtnLabel.textContent = 'Unmute';
+    }
+    if (theaterMuteBtn) {
+      theaterMuteBtn.classList.add('is-muted');
+      theaterMicIconUnmuted.classList.add('hidden');
+      theaterMicIconMuted.classList.remove('hidden');
+      theaterMuteBtnLabel.textContent = 'Unmute';
+    }
   } else {
-    callMuteBtn.classList.remove('is-muted');
-    micIconUnmuted.classList.remove('hidden');
-    micIconMuted.classList.add('hidden');
-    callMuteBtnLabel.textContent = 'Mute';
+    if (callMuteBtn) {
+      callMuteBtn.classList.remove('is-muted');
+      micIconUnmuted.classList.remove('hidden');
+      micIconMuted.classList.add('hidden');
+      callMuteBtnLabel.textContent = 'Mute';
+    }
+    if (theaterMuteBtn) {
+      theaterMuteBtn.classList.remove('is-muted');
+      theaterMicIconUnmuted.classList.remove('hidden');
+      theaterMicIconMuted.classList.add('hidden');
+      theaterMuteBtnLabel.textContent = 'Mute';
+    }
   }
 }
 
-// Cleanly terminate voice call
+function updateCameraButtonsUI() {
+  const on = currentCall.isVideoEnabled;
+  if (on) {
+    if (callCameraBtn) {
+      callCameraBtn.classList.add('is-active');
+      cameraIconOff.classList.add('hidden');
+      cameraIconOn.classList.remove('hidden');
+      callCameraBtnLabel.textContent = 'Camera On';
+    }
+    if (theaterCameraBtn) {
+      theaterCameraBtn.classList.add('is-active');
+      theaterCameraIconOff.classList.add('hidden');
+      theaterCameraIconOn.classList.remove('hidden');
+      theaterCameraBtnLabel.textContent = 'Turn Off Camera';
+    }
+  } else {
+    if (callCameraBtn) {
+      callCameraBtn.classList.remove('is-active');
+      cameraIconOff.classList.remove('hidden');
+      cameraIconOn.classList.add('hidden');
+      callCameraBtnLabel.textContent = 'Camera';
+    }
+    if (theaterCameraBtn) {
+      theaterCameraBtn.classList.remove('is-active');
+      theaterCameraIconOff.classList.remove('hidden');
+      theaterCameraIconOn.classList.add('hidden');
+      theaterCameraBtnLabel.textContent = 'Turn On Camera';
+    }
+  }
+}
+
+// Cleanly terminate call
 function endVoiceCall(shouldNotify = true) {
   stopAllRingtones();
 
@@ -3045,14 +3321,19 @@ function endVoiceCall(shouldNotify = true) {
     currentCall.localStream = null;
   }
 
+  if (currentCall.localVideoTrack) {
+    try { currentCall.localVideoTrack.stop(); } catch {}
+    currentCall.localVideoTrack = null;
+  }
+
   if (currentCall.peerConnection) {
     try { currentCall.peerConnection.close(); } catch {}
     currentCall.peerConnection = null;
   }
 
-  if (remoteVoiceAudio) {
-    remoteVoiceAudio.srcObject = null;
-  }
+  if (remoteVoiceAudio) remoteVoiceAudio.srcObject = null;
+  if (remoteVideoFeed) remoteVideoFeed.srcObject = null;
+  if (localVideoFeed) localVideoFeed.srcObject = null;
 
   if (currentCall.timerInterval) {
     clearInterval(currentCall.timerInterval);
@@ -3064,14 +3345,21 @@ function endVoiceCall(shouldNotify = true) {
   currentCall.role = null;
   currentCall.status = 'idle';
   currentCall.isMuted = false;
+  currentCall.isVideoEnabled = false;
+  currentCall.remoteVideoEnabled = false;
+  currentCall.isTheaterOpen = false;
   currentCall.seconds = 0;
   pendingIceCandidates = [];
 
+  updateMuteButtonUI();
+  updateCameraButtonsUI();
+
   if (activeCallWidget) activeCallWidget.classList.add('hidden');
+  if (activeCallTheaterOverlay) activeCallTheaterOverlay.classList.add('hidden');
   if (incomingCallModalOverlay) incomingCallModalOverlay.classList.add('hidden');
 }
 
-// Voice Calling Event Listeners
+// Voice & Video Calling Event Listeners
 if (acceptCallBtn) {
   acceptCallBtn.addEventListener('click', acceptIncomingCall);
 }
@@ -3084,8 +3372,35 @@ if (callMuteBtn) {
   callMuteBtn.addEventListener('click', toggleMute);
 }
 
+if (theaterMuteBtn) {
+  theaterMuteBtn.addEventListener('click', toggleMute);
+}
+
+if (callCameraBtn) {
+  callCameraBtn.addEventListener('click', toggleCamera);
+}
+
+if (theaterCameraBtn) {
+  theaterCameraBtn.addEventListener('click', toggleCamera);
+}
+
+if (callExpandTheaterBtn) {
+  callExpandTheaterBtn.addEventListener('click', openVideoTheater);
+}
+
+if (theaterMinimizeBtn) {
+  theaterMinimizeBtn.addEventListener('click', closeVideoTheater);
+}
+
 if (callHangupBtn) {
   callHangupBtn.addEventListener('click', () => {
+    playCallChime('end');
+    endVoiceCall(true);
+  });
+}
+
+if (theaterHangupBtn) {
+  theaterHangupBtn.addEventListener('click', () => {
     playCallChime('end');
     endVoiceCall(true);
   });
