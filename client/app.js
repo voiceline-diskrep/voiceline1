@@ -2842,7 +2842,7 @@ async function acceptIncomingCall() {
   updateCameraButtonsUI();
   activeCallWidget.classList.remove('hidden');
 
-  setupPeerConnection();
+  setupPeerConnection(false);
 
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({
@@ -2876,7 +2876,7 @@ async function handleCallAccepted(msg) {
   playCallChime('connect');
 
   callStatusText.textContent = 'Connecting...';
-  setupPeerConnection();
+  setupPeerConnection(true);
 
   try {
     const offer = await currentCall.peerConnection.createOffer();
@@ -2937,7 +2937,7 @@ function handleCallError(msg) {
 }
 
 // Setup RTCPeerConnection and audio/video streams
-function setupPeerConnection() {
+function setupPeerConnection(isCaller = true) {
   if (currentCall.peerConnection) {
     try { currentCall.peerConnection.close(); } catch {}
   }
@@ -2945,25 +2945,22 @@ function setupPeerConnection() {
   const pc = new RTCPeerConnection(rtcConfig);
   currentCall.peerConnection = pc;
 
-  // Add transceivers for both audio and video upfront
-  pc.addTransceiver('audio', { direction: 'sendrecv' });
-  const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
-  currentCall.videoSender = videoTransceiver.sender;
+  if (isCaller) {
+    // Caller adds transceivers for both audio and video upfront so they appear in Offer
+    const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+    currentCall.videoSender = videoTransceiver.sender;
 
-  if (currentCall.localStream) {
-    const audioTrack = currentCall.localStream.getAudioTracks()[0];
-    if (audioTrack) {
-      const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio') || pc.getTransceivers()[0].sender;
-      if (audioSender) {
-        audioSender.replaceTrack(audioTrack);
-      } else {
-        pc.addTrack(audioTrack, currentCall.localStream);
+    if (currentCall.localStream) {
+      const audioTrack = currentCall.localStream.getAudioTracks()[0];
+      if (audioTrack && audioTransceiver.sender) {
+        audioTransceiver.sender.replaceTrack(audioTrack);
       }
     }
-  }
 
-  if (currentCall.localVideoTrack && currentCall.videoSender) {
-    currentCall.videoSender.replaceTrack(currentCall.localVideoTrack);
+    if (currentCall.localVideoTrack && currentCall.videoSender) {
+      currentCall.videoSender.replaceTrack(currentCall.localVideoTrack);
+    }
   }
 
   pc.onicecandidate = (event) => {
@@ -2979,23 +2976,24 @@ function setupPeerConnection() {
 
   pc.ontrack = (event) => {
     if (event.track.kind === 'audio') {
-      if (event.streams && event.streams[0]) {
-        currentCall.remoteStream = event.streams[0];
-        if (remoteVoiceAudio) {
-          remoteVoiceAudio.srcObject = event.streams[0];
-          remoteVoiceAudio.play().catch(e => console.log('Audio autoplay prevented:', e));
-        }
+      const stream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+      currentCall.remoteAudioStream = stream;
+      if (remoteVoiceAudio) {
+        remoteVoiceAudio.srcObject = stream;
+        remoteVoiceAudio.play().catch(e => console.log('Audio autoplay prevented:', e));
       }
     } else if (event.track.kind === 'video') {
-      if (event.streams && event.streams[0]) {
-        if (remoteVideoFeed) {
-          remoteVideoFeed.srcObject = event.streams[0];
-          remoteVideoFeed.play().catch(e => console.log('Video autoplay prevented:', e));
-          remoteVideoFeed.classList.remove('hidden');
-          if (remoteCameraOffState) remoteCameraOffState.classList.add('hidden');
-          currentCall.remoteVideoEnabled = true;
-        }
+      currentCall.remoteVideoTrack = event.track;
+      let stream = (event.streams && event.streams[0]) ? event.streams[0] : null;
+      if (!stream) {
+        stream = new MediaStream([event.track]);
       }
+      currentCall.remoteVideoStream = stream;
+      attachRemoteVideoFeed();
+
+      event.track.onunmute = () => {
+        attachRemoteVideoFeed();
+      };
     }
   };
 
@@ -3008,15 +3006,63 @@ function setupPeerConnection() {
   };
 }
 
+// Safely attach and play remote video feed
+function attachRemoteVideoFeed() {
+  if (!remoteVideoFeed || !currentCall.peerConnection) return;
+
+  let stream = currentCall.remoteVideoStream;
+  if (!stream) {
+    const videoReceiver = currentCall.peerConnection.getReceivers().find(r => r.track && r.track.kind === 'video');
+    if (videoReceiver && videoReceiver.track) {
+      currentCall.remoteVideoTrack = videoReceiver.track;
+      stream = new MediaStream([videoReceiver.track]);
+      currentCall.remoteVideoStream = stream;
+    }
+  }
+
+  if (stream) {
+    if (remoteVideoFeed.srcObject !== stream) {
+      remoteVideoFeed.srcObject = stream;
+    }
+    remoteVideoFeed.muted = true;
+    const playPromise = remoteVideoFeed.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(e => console.warn('[Voiceline] Remote video play error:', e));
+    }
+  }
+}
+
 // Callee handles Offer from Caller
 async function handleWebRtcOffer(msg) {
   if (!currentCall.peerConnection) {
-    setupPeerConnection();
+    setupPeerConnection(false);
   }
 
   try {
     await currentCall.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
     await flushPendingIceCandidates();
+
+    // On Callee, match the transceivers created by setRemoteDescription from the Offer
+    const audioTransceiver = currentCall.peerConnection.getTransceivers().find(t => t.receiver && t.receiver.track && t.receiver.track.kind === 'audio');
+    const videoTransceiver = currentCall.peerConnection.getTransceivers().find(t => t.receiver && t.receiver.track && t.receiver.track.kind === 'video');
+
+    if (audioTransceiver) {
+      audioTransceiver.direction = 'sendrecv';
+      if (currentCall.localStream) {
+        const audioTrack = currentCall.localStream.getAudioTracks()[0];
+        if (audioTrack && audioTransceiver.sender) {
+          await audioTransceiver.sender.replaceTrack(audioTrack);
+        }
+      }
+    }
+
+    if (videoTransceiver) {
+      videoTransceiver.direction = 'sendrecv';
+      currentCall.videoSender = videoTransceiver.sender;
+      if (currentCall.localVideoTrack && videoTransceiver.sender) {
+        await videoTransceiver.sender.replaceTrack(currentCall.localVideoTrack);
+      }
+    }
 
     const answer = await currentCall.peerConnection.createAnswer();
     await currentCall.peerConnection.setLocalDescription(answer);
@@ -3030,6 +3076,7 @@ async function handleWebRtcOffer(msg) {
       }));
     }
 
+    attachRemoteVideoFeed();
     playCallChime('connect');
     onCallEstablished();
   } catch (err) {
@@ -3045,6 +3092,7 @@ async function handleWebRtcAnswer(msg) {
   try {
     await currentCall.peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
     await flushPendingIceCandidates();
+    attachRemoteVideoFeed();
     onCallEstablished();
   } catch (err) {
     console.error('Error handling WebRTC answer:', err);
@@ -3114,8 +3162,16 @@ async function toggleCamera() {
 
     currentCall.isVideoEnabled = false;
 
-    if (currentCall.videoSender) {
-      try { await currentCall.videoSender.replaceTrack(null); } catch {}
+    let sender = currentCall.videoSender;
+    if (!sender && currentCall.peerConnection) {
+      const vt = currentCall.peerConnection.getTransceivers().find(t => t.sender && (t.sender.track?.kind === 'video' || t.receiver?.track?.kind === 'video'));
+      if (vt) {
+        sender = vt.sender;
+        currentCall.videoSender = sender;
+      }
+    }
+    if (sender) {
+      try { await sender.replaceTrack(null); } catch {}
     }
 
     if (localVideoFeed) {
@@ -3151,14 +3207,23 @@ async function toggleCamera() {
 
       if (localVideoFeed) {
         localVideoFeed.srcObject = stream;
+        localVideoFeed.muted = true;
+        localVideoFeed.play().catch(e => console.warn('Local preview play error:', e));
         localVideoFeed.classList.remove('hidden');
       }
       if (selfCameraOffState) selfCameraOffState.classList.add('hidden');
 
-      if (currentCall.videoSender) {
-        await currentCall.videoSender.replaceTrack(track);
-      } else if (currentCall.peerConnection) {
-        currentCall.videoSender = currentCall.peerConnection.addTrack(track, stream);
+      let sender = currentCall.videoSender;
+      if (!sender && currentCall.peerConnection) {
+        const vt = currentCall.peerConnection.getTransceivers().find(t => t.sender && (t.sender.track?.kind === 'video' || t.receiver?.track?.kind === 'video'));
+        if (vt) {
+          sender = vt.sender;
+          currentCall.videoSender = sender;
+        }
+      }
+
+      if (sender) {
+        await sender.replaceTrack(track);
       }
 
       updateCameraButtonsUI();
@@ -3185,6 +3250,7 @@ async function toggleCamera() {
 function handleRemoteVideoState(msg) {
   currentCall.remoteVideoEnabled = Boolean(msg.enabled);
   if (msg.enabled) {
+    attachRemoteVideoFeed();
     if (remoteVideoFeed) remoteVideoFeed.classList.remove('hidden');
     if (remoteCameraOffState) remoteCameraOffState.classList.add('hidden');
     openVideoTheater();
@@ -3208,6 +3274,7 @@ function openVideoTheater() {
 
   // Sync remote video vs placeholder
   if (currentCall.remoteVideoEnabled) {
+    attachRemoteVideoFeed();
     if (remoteVideoFeed) remoteVideoFeed.classList.remove('hidden');
     if (remoteCameraOffState) remoteCameraOffState.classList.add('hidden');
   } else {
@@ -3217,7 +3284,11 @@ function openVideoTheater() {
 
   // Sync self preview vs placeholder
   if (currentCall.isVideoEnabled && currentCall.localVideoTrack) {
-    if (localVideoFeed) localVideoFeed.classList.remove('hidden');
+    if (localVideoFeed) {
+      localVideoFeed.muted = true;
+      localVideoFeed.play().catch(e => console.warn('Local preview play error:', e));
+      localVideoFeed.classList.remove('hidden');
+    }
     if (selfCameraOffState) selfCameraOffState.classList.add('hidden');
   } else {
     if (localVideoFeed) localVideoFeed.classList.add('hidden');
@@ -3347,6 +3418,9 @@ function endVoiceCall(shouldNotify = true) {
   currentCall.isMuted = false;
   currentCall.isVideoEnabled = false;
   currentCall.remoteVideoEnabled = false;
+  currentCall.remoteVideoStream = null;
+  currentCall.remoteVideoTrack = null;
+  currentCall.videoSender = null;
   currentCall.isTheaterOpen = false;
   currentCall.seconds = 0;
   pendingIceCandidates = [];
