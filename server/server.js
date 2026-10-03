@@ -178,7 +178,7 @@ const server = http.createServer(async (req, res) => {
         const { name } = await readJsonBody(req);
         try {
           const newServer = db.createServer({ name, createdBy: user.id });
-          broadcastAll({
+          broadcastToDevelopers({
             type: 'server_created',
             server: { id: newServer.id, name: newServer.name }
           });
@@ -218,7 +218,7 @@ const server = http.createServer(async (req, res) => {
         const serverId = Number(regenCodeMatch[1]);
         try {
           const result = db.regenerateServerJoinCode(serverId);
-          broadcastAll({
+          broadcastToDevelopers({
             type: 'server_code_updated',
             serverId: result.serverId,
             joinCode: result.joinCode
@@ -238,6 +238,9 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 401, { error: 'Not authenticated' });
         }
         const serverId = Number(channelsMatch[1]);
+        if (!db.canAccessServer(user, serverId)) {
+          return sendJson(res, 403, { error: 'You are not a member of this server.' });
+        }
         const channels = db.getChannelsByServerId(serverId);
         return sendJson(res, 200, { channels });
       }
@@ -254,7 +257,7 @@ const server = http.createServer(async (req, res) => {
         const { name } = await readJsonBody(req);
         try {
           const channel = db.createChannel({ serverId, name });
-          broadcastAll({
+          broadcastToServer(serverId, {
             type: 'channel_created',
             serverId: serverId,
             channel: channel
@@ -278,7 +281,7 @@ const server = http.createServer(async (req, res) => {
         const channelId = Number(deleteChannelMatch[2]);
         try {
           db.deleteChannel({ serverId, channelId });
-          broadcastAll({
+          broadcastToServer(serverId, {
             type: 'channel_deleted',
             serverId: serverId,
             channelId: channelId
@@ -623,10 +626,34 @@ function broadcastAll(payload) {
   }
 }
 
-function broadcastToChannel(channelId, payload) {
+function broadcastToChannel(channelId, serverId, payload) {
   const messageStr = JSON.stringify(payload);
   for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN && client.currentChannelId === channelId) {
+    if (
+      client.readyState === WebSocket.OPEN &&
+      client.user &&
+      client.currentChannelId === channelId &&
+      db.canAccessServer(client.user, serverId)
+    ) {
+      client.send(messageStr);
+    }
+  }
+}
+
+// Send only to accounts that can access the given server (members + developers)
+function broadcastToServer(serverId, payload) {
+  const messageStr = JSON.stringify(payload);
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client.user && db.canAccessServer(client.user, serverId)) {
+      client.send(messageStr);
+    }
+  }
+}
+
+function broadcastToDevelopers(payload) {
+  const messageStr = JSON.stringify(payload);
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client.user && client.user.isDeveloper) {
       client.send(messageStr);
     }
   }
@@ -642,6 +669,17 @@ function broadcastToUsers(userIds, payload) {
   }
 }
 
+// Returns the channel if this account may use it inside the given server, otherwise null
+function resolveAccessibleChannel(user, serverId, channelId) {
+  const sId = Number(serverId);
+  const cId = Number(channelId);
+  if (!sId || !cId) return null;
+  const channel = db.getChannelById(cId);
+  if (!channel || Number(channel.serverId) !== sId) return null;
+  if (!db.canAccessServer(user, sId)) return null;
+  return channel;
+}
+
 wss.on('connection', (ws, req) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const token = urlObj.searchParams.get('token');
@@ -654,25 +692,29 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.user = user;
-  const initialServerId = Number(urlObj.searchParams.get('serverId')) || 1;
-  const initialChannelId = Number(urlObj.searchParams.get('channelId')) || 1;
-
-  ws.currentServerId = initialServerId;
-  ws.currentChannelId = initialChannelId;
+  ws.currentServerId = null;
+  ws.currentChannelId = null;
 
   console.log(`[Voiceline] @${user.username} connected`);
 
-  // Send message history for the active channel
-  try {
-    const history = db.getRecentMessages(ws.currentChannelId, 50);
-    ws.send(JSON.stringify({
-      type: 'history',
-      serverId: ws.currentServerId,
-      channelId: ws.currentChannelId,
-      data: history
-    }));
-  } catch (err) {
-    console.error('[Voiceline] Error fetching history:', err);
+  // Only join + send history if this account is actually allowed in the requested channel
+  const initialServerId = Number(urlObj.searchParams.get('serverId'));
+  const initialChannelId = Number(urlObj.searchParams.get('channelId'));
+  const initialChannel = resolveAccessibleChannel(user, initialServerId, initialChannelId);
+  if (initialChannel) {
+    ws.currentServerId = initialServerId;
+    ws.currentChannelId = initialChannelId;
+    try {
+      const history = db.getRecentMessages(ws.currentChannelId, 50);
+      ws.send(JSON.stringify({
+        type: 'history',
+        serverId: ws.currentServerId,
+        channelId: ws.currentChannelId,
+        data: history
+      }));
+    } catch (err) {
+      console.error('[Voiceline] Error fetching history:', err);
+    }
   }
 
   ws.on('message', (raw) => {
@@ -681,8 +723,22 @@ wss.on('connection', (ws, req) => {
 
       // Switch active channel
       if (parsed.type === 'join_channel') {
-        const targetServerId = Number(parsed.serverId) || 1;
-        const targetChannelId = Number(parsed.channelId) || 1;
+        const targetServerId = Number(parsed.serverId);
+        const targetChannelId = Number(parsed.channelId);
+        const channel = resolveAccessibleChannel(ws.user, targetServerId, targetChannelId);
+
+        if (!channel) {
+          ws.currentServerId = null;
+          ws.currentChannelId = null;
+          ws.send(JSON.stringify({
+            type: 'channel_access_denied',
+            serverId: targetServerId,
+            channelId: targetChannelId,
+            message: 'You do not have access to this channel.'
+          }));
+          return;
+        }
+
         ws.currentServerId = targetServerId;
         ws.currentChannelId = targetChannelId;
 
@@ -701,8 +757,21 @@ wss.on('connection', (ws, req) => {
         const content = (parsed.content || '').trim();
         if (!content) return;
 
-        const serverId = ws.currentServerId || 1;
-        const channelId = ws.currentChannelId || 1;
+        const serverId = ws.currentServerId;
+        const channelId = ws.currentChannelId;
+
+        // Re-check on every send: membership may have changed since the channel was joined
+        if (!resolveAccessibleChannel(ws.user, serverId, channelId)) {
+          ws.currentServerId = null;
+          ws.currentChannelId = null;
+          ws.send(JSON.stringify({
+            type: 'channel_access_denied',
+            serverId,
+            channelId,
+            message: 'You cannot send messages here because you are not a member of this server.'
+          }));
+          return;
+        }
 
         const savedMessage = db.saveMessage({
           serverId: serverId,
@@ -714,7 +783,7 @@ wss.on('connection', (ws, req) => {
           content: content
         });
 
-        broadcastToChannel(channelId, {
+        broadcastToChannel(channelId, serverId, {
           type: 'chat',
           serverId: serverId,
           channelId: channelId,

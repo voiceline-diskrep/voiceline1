@@ -161,8 +161,8 @@ let currentUser = null;
 let token = localStorage.getItem('voiceline_token');
 let servers = [];
 let channels = [];
-let activeServerId = 1;
-let activeChannelId = 1;
+let activeServerId = null;
+let activeChannelId = null;
 let currentView = 'server'; // 'server' or 'friends'
 let currentFriendsTab = 'all'; // 'all', 'pending', 'add'
 let friendsData = { friends: [], pendingIncoming: [], pendingOutgoing: [] };
@@ -434,15 +434,8 @@ function applyUserProfile(user) {
   }
 }
 
-function handleLogout() {
-  if (token) {
-    try {
-      fetch('/api/logout', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-    } catch {}
-  }
+async function handleLogout() {
+  const oldToken = token;
 
   isIntentionalDisconnect = true;
   localStorage.removeItem('voiceline_token');
@@ -453,8 +446,18 @@ function handleLogout() {
     socket.close();
   }
 
-  authOverlay.classList.remove('hidden');
-  tabLoginBtn.click();
+  if (oldToken) {
+    try {
+      await fetch('/api/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${oldToken}` }
+      });
+    } catch {}
+  }
+
+  // Full reload wipes ALL in-memory state (servers, channels, messages, friends, DMs)
+  // so nothing from this account can leak into the next account that logs in here.
+  window.location.reload();
 }
 
 logoutBtn.addEventListener('click', handleLogout);
@@ -1189,11 +1192,14 @@ async function loadServers() {
     });
     if (res.ok) {
       const data = await res.json();
+      // Only servers the CURRENTLY logged-in account belongs to (server enforces this)
       servers = data.servers || [];
       renderServerList();
 
       if (currentView === 'server') {
-        if (!servers.some(s => s.id === activeServerId) && servers.length > 0) {
+        if (servers.length === 0) {
+          showNoServersState();
+        } else if (!servers.some(s => s.id === activeServerId)) {
           await selectServer(servers[0].id);
         } else {
           await selectServer(activeServerId);
@@ -1203,6 +1209,27 @@ async function loadServers() {
   } catch (err) {
     console.error('Failed to load servers:', err);
   }
+}
+
+// Shown when the logged-in account has not joined any servers (or lost access)
+function showNoServersState() {
+  activeServerId = null;
+  activeChannelId = null;
+  channels = [];
+
+  document.querySelectorAll('.server-item:not(#homeBtn)').forEach(el => el.classList.remove('active'));
+  currentServerTitle.textContent = 'No servers yet';
+  if (developerServerCodeBadge) developerServerCodeBadge.classList.add('hidden');
+  channelList.innerHTML = `<div style="padding: 8px 10px; font-size: 12px; color: var(--text-muted);">Join a server to see its channels.</div>`;
+
+  activeChannelName.textContent = 'no-server';
+  activeChannelDesc.textContent = '';
+  welcomeTitle.textContent = "You haven't joined any servers yet";
+  welcomeDesc.textContent = 'Click the compass button on the left and enter a join code to join a server.';
+  messagesList.innerHTML = '';
+  messageInput.value = '';
+  messageInput.disabled = true;
+  messageInput.placeholder = 'Join a server to start chatting';
 }
 
 function renderServerList() {
@@ -1229,13 +1256,23 @@ function renderServerList() {
 }
 
 async function selectServer(serverId) {
-  activeServerId = Number(serverId);
+  const targetId = Number(serverId);
+  // Never open a server that isn't in this account's own server list
+  if (!targetId || !servers.some(s => s.id === targetId)) {
+    if (servers.length > 0) {
+      return selectServer(servers[0].id);
+    }
+    showNoServersState();
+    return;
+  }
+
+  activeServerId = targetId;
 
   document.querySelectorAll('.server-item:not(#homeBtn)').forEach(el => {
     el.classList.toggle('active', Number(el.getAttribute('data-id')) === activeServerId);
   });
 
-  const curServer = servers.find(s => s.id === activeServerId) || { name: 'Voiceline' };
+  const curServer = servers.find(s => s.id === activeServerId);
   currentServerTitle.textContent = curServer.name;
 
   if (developerServerCodeBadge) {
@@ -1257,6 +1294,18 @@ async function loadChannels(serverId) {
     const res = await fetch(`/api/servers/${serverId}/channels`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
+
+    if (res.status === 403) {
+      // This account is not (or no longer) a member: refresh its own server list
+      servers = servers.filter(s => s.id !== Number(serverId));
+      renderServerList();
+      if (servers.length > 0) {
+        await selectServer(servers[0].id);
+      } else {
+        showNoServersState();
+      }
+      return;
+    }
 
     if (res.ok) {
       const data = await res.json();
@@ -1321,6 +1370,7 @@ function selectChannel(channelId) {
   activeChannelDesc.textContent = `in ${curServer.name}`;
   welcomeTitle.textContent = `Welcome to #${curChannel.name}!`;
   welcomeDesc.textContent = `This is the start of the #${curChannel.name} channel in ${curServer.name}. Messages here are saved safely in SQLite.`;
+  messageInput.disabled = false;
   messageInput.placeholder = `Message #${curChannel.name}... (Press Enter to send)`;
   messageInput.focus();
 
@@ -1622,7 +1672,7 @@ function connectWebSocket() {
   if (!token) return;
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/?token=${encodeURIComponent(token)}&serverId=${activeServerId}&channelId=${activeChannelId}`;
+  const wsUrl = `${protocol}//${window.location.host}/?token=${encodeURIComponent(token)}&serverId=${activeServerId || ''}&channelId=${activeChannelId || ''}`;
 
   setStatus('connecting', 'Connecting...');
   socket = new WebSocket(wsUrl);
@@ -1651,6 +1701,11 @@ function connectWebSocket() {
       } else if (msg.type === 'chat') {
         if (msg.channelId === activeChannelId) {
           appendMessage(msg.data, true);
+        }
+      } else if (msg.type === 'channel_access_denied') {
+        if (currentView === 'server' && msg.channelId === activeChannelId) {
+          messagesList.innerHTML = '';
+          loadServers();
         }
       } else if (msg.type === 'server_created') {
         loadServers();

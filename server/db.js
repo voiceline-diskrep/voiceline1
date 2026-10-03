@@ -2,7 +2,7 @@ const { DatabaseSync } = require('node:sqlite');
 const crypto = require('node:crypto');
 const path = require('path');
 
-const dbPath = path.join(__dirname, '..', 'voiceline.db');
+const dbPath = process.env.VOICELINE_DB_PATH || path.join(__dirname, '..', 'voiceline.db');
 const db = new DatabaseSync(dbPath);
 
 // Initialize Tables
@@ -143,13 +143,24 @@ for (const s of serversNeedingCode) {
   updateServerCodeMigrationStmt.run(getUniqueJoinCode(), s.id);
 }
 
-// Backfill server memberships: all existing users belong to Server 1 (General)
-try {
-  db.prepare(`
-    INSERT OR IGNORE INTO server_members (server_id, user_id, joined_at)
-    SELECT 1, id, created_at FROM users
-  `).run();
-} catch {}
+// One-time migration (schema version 1): accounts are no longer auto-added to
+// Server 1 (General). Remove memberships that were created automatically.
+// Auto-added rows were stamped with joined_at = the user's created_at, whereas
+// real joins via join code are stamped with the actual join time.
+const schemaVersion = Number(db.prepare(`PRAGMA user_version`).get().user_version) || 0;
+if (schemaVersion < 1) {
+  try {
+    const removed = db.prepare(`
+      DELETE FROM server_members
+      WHERE server_id = 1
+        AND joined_at = (SELECT u.created_at FROM users u WHERE u.id = server_members.user_id)
+    `).run();
+    console.log(`[Voiceline] Migration: removed ${removed.changes} automatic General memberships.`);
+  } catch (err) {
+    console.error('[Voiceline] Migration (auto General membership cleanup) failed:', err);
+  }
+  db.exec(`PRAGMA user_version = 1`);
+}
 
 // Backfill server creators to their own servers
 try {
@@ -274,7 +285,6 @@ function createUser({ username, displayName, password, isDeveloper = false }) {
 
   const result = insertUserStmt.run(cleanUsername, cleanDisplay, hash, salt, devFlag, createdAt);
   const userId = Number(result.lastInsertRowid);
-  addServerMemberStmt.run(1, userId, createdAt);
   return {
     id: userId,
     username: cleanUsername,
@@ -368,6 +378,20 @@ const isServerMemberStmt = db.prepare(`
   SELECT id FROM server_members
   WHERE server_id = ? AND user_id = ?
 `);
+
+function isServerMember(serverId, userId) {
+  if (!serverId || !userId) return false;
+  return Boolean(isServerMemberStmt.get(Number(serverId), Number(userId)));
+}
+
+// Single source of truth for "may this account see this server's channels and messages?"
+// Members only; developer accounts keep their admin view of every server.
+function canAccessServer(user, serverId) {
+  if (!user || !serverId) return false;
+  if (!getServerByIdStmt.get(Number(serverId))) return false;
+  if (user.isDeveloper) return true;
+  return isServerMember(serverId, user.id);
+}
 
 const getAllServersStmt = db.prepare(`
   SELECT id, name, created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
@@ -955,6 +979,8 @@ module.exports = {
   getServerById,
   getServerByName,
   getServerByJoinCode,
+  isServerMember,
+  canAccessServer,
   createServer,
   joinServerByCode,
   regenerateServerJoinCode,
