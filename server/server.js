@@ -752,6 +752,136 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // ==========================================
+      // FEEDBACK & COMMUNITY FORUM API ENDPOINTS
+      // ==========================================
+
+      // GET /api/feedback (List all community feedback & check user submission status)
+      if (req.method === 'GET' && pathname === '/api/feedback') {
+        const token = getTokenFromReq(req);
+        const user = token ? db.getUserByToken(token) : null;
+        const feedbackList = db.getAllFeedback();
+        const hasSubmitted = user ? db.hasUserSubmittedFeedback(user.id) : false;
+
+        return sendJson(res, 200, {
+          success: true,
+          feedback: feedbackList,
+          hasSubmitted
+        });
+      }
+
+      // POST /api/feedback (Submit new community feedback)
+      if (req.method === 'POST' && pathname === '/api/feedback') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'You must be logged in to submit feedback.' });
+        }
+
+        const { content } = await readJsonBody(req);
+        const cleanContent = String(content || '').trim();
+        if (!cleanContent) {
+          return sendJson(res, 400, { error: 'Feedback message cannot be empty.' });
+        }
+        if (cleanContent.length > 2000) {
+          return sendJson(res, 400, { error: 'Feedback message must be 2000 characters or fewer.' });
+        }
+
+        try {
+          const newFeedback = db.createFeedback({
+            userId: user.id,
+            authorName: user.displayName,
+            authorUsername: user.username,
+            authorAvatarUrl: user.avatarUrl,
+            content: cleanContent
+          });
+
+          broadcastAll({
+            type: 'feedback_created',
+            feedback: newFeedback
+          });
+
+          return sendJson(res, 200, {
+            success: true,
+            feedback: newFeedback,
+            hasSubmitted: true
+          });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // PATCH /api/feedback/:id/status (Developer only - Update feedback status and response)
+      const feedbackStatusMatch = pathname.match(/^\/api\/feedback\/(\d+)\/status$/);
+      if (req.method === 'PATCH' && feedbackStatusMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated.' });
+        }
+        if (!user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can change feedback status.' });
+        }
+
+        const feedbackId = Number(feedbackStatusMatch[1]);
+        const { status, devResponse } = await readJsonBody(req);
+
+        try {
+          const updatedFeedback = db.updateFeedbackStatus({
+            feedbackId,
+            status,
+            devResponse,
+            devUserId: user.id
+          });
+
+          if (!updatedFeedback) {
+            return sendJson(res, 404, { error: 'Feedback post not found.' });
+          }
+
+          broadcastAll({
+            type: 'feedback_updated',
+            feedback: updatedFeedback
+          });
+
+          return sendJson(res, 200, {
+            success: true,
+            feedback: updatedFeedback
+          });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/feedback/:id (Developer only - Remove spam/inappropriate feedback)
+      const deleteFeedbackMatch = pathname.match(/^\/api\/feedback\/(\d+)$/);
+      if (req.method === 'DELETE' && deleteFeedbackMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated.' });
+        }
+        if (!user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can delete feedback.' });
+        }
+
+        const feedbackId = Number(deleteFeedbackMatch[1]);
+        try {
+          db.deleteFeedback({ feedbackId });
+
+          broadcastAll({
+            type: 'feedback_deleted',
+            feedbackId
+          });
+
+          return sendJson(res, 200, {
+            success: true,
+            feedbackId
+          });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
       return sendJson(res, 404, { error: 'API endpoint not found' });
     } catch (apiErr) {
       console.error('[Voiceline API Error]', apiErr);

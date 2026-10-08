@@ -8,6 +8,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    (function() {
+      try {
+        const theme = localStorage.getItem('voiceline_theme') || 'discord';
+        document.documentElement.setAttribute('data-theme', theme);
+        if (localStorage.getItem('voiceline_promo_banner_dismissed') === 'true') {
+          document.documentElement.classList.add('promo-dismissed');
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
 
@@ -290,8 +301,19 @@
     </div>
   </div>
 
-  <!-- App Wrapper: Server Rail + Sidebar + Main View -->
-  <div class="app-wrapper">
+  <div class="global-app-container" id="globalAppContainer">
+    <!-- Global Promotional Banner (Nitro Offer) -->
+    <div class="global-promo-banner" id="globalPromoBanner">
+      <div class="promo-content">
+        <span class="promo-pill">Nitro</span>
+        <span class="promo-text">New Nitro Reward! Get 20% off your next 6 months of Nitro Basic or Nitro with code <strong>NITRO2026</strong> at checkout.</span>
+        <button type="button" class="promo-claim-btn" id="promoClaimBtn">Claim Offer</button>
+      </div>
+      <button type="button" class="promo-close-btn" id="promoCloseBtn" title="Dismiss banner" aria-label="Dismiss banner">&times;</button>
+    </div>
+
+    <!-- App Wrapper: Server Rail + Sidebar + Main View -->
+    <div class="app-wrapper">
     <!-- 1. Left Server Rail (Discord Style) -->
     <nav class="server-rail" aria-label="Servers">
       <!-- Friends / Home Button -->
@@ -430,6 +452,14 @@
             <span class="status-text">Connecting...</span>
           </div>
 
+          <!-- Community Feedback Button -->
+          <button type="button" class="top-feedback-btn" id="chatFeedbackBtn" title="Community Feedback">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+            </svg>
+            <span>Feedback</span>
+          </button>
+
           <!-- User Profile Capsule -->
           <div class="user-capsule" id="userCapsule">
             <div class="user-avatar" id="currentUserAvatar">U</div>
@@ -510,6 +540,14 @@
         </div>
 
         <div class="header-right">
+          <!-- Community Feedback Button -->
+          <button type="button" class="top-feedback-btn" id="friendsFeedbackBtn" title="Community Feedback">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+            </svg>
+            <span>Feedback</span>
+          </button>
+
           <!-- User Profile Capsule repeated in Friends layout header -->
           <div class="user-capsule" id="friendsUserCapsule" title="Click to edit your profile">
             <div class="user-avatar" id="currentUserAvatar2">U</div>
@@ -603,6 +641,14 @@
             <span class="status-text">Direct Message</span>
           </div>
 
+          <!-- Community Feedback Button -->
+          <button type="button" class="top-feedback-btn" id="dmFeedbackBtn" title="Community Feedback">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+            </svg>
+            <span>Feedback</span>
+          </button>
+
           <!-- User Profile Capsule -->
           <div class="user-capsule" id="dmUserCapsule" title="Click to edit your profile">
             <div class="user-avatar" id="currentUserAvatar3">U</div>
@@ -666,6 +712,7 @@
         </form>
       </footer>
     </div>
+  </div>
   </div>
 
   <!-- Pre-Shutdown Storage Check Modal (Developer Only) -->
@@ -884,6 +931,105 @@
           </svg>
           <span>End Call</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nitro Easter Egg Offer Modal -->
+  <div class="modal-overlay hidden" id="easterEggOfferModalOverlay">
+    <div class="modal-card easter-egg-modal-card">
+      <div class="easter-egg-header">
+        <div class="easter-egg-badge">
+          <span class="easter-egg-badge-icon">🎁</span>
+          <span>Voiceline Nitro Rewards</span>
+        </div>
+        <button type="button" class="modal-close-x" id="closeEasterEggBtn" title="Close (ESC)">&times;</button>
+      </div>
+      <div class="easter-egg-body">
+        <div class="easter-egg-icon-large">🥳</div>
+        <div class="easter-egg-quote-box">
+          <p class="easter-egg-quote-text">"It's just a joke! This project is made to let people customize and express themself without any paywall. literally. no paywalls for now and ever. i hate josh hill dw -rsl"</p>
+        </div>
+        <p class="easter-egg-subtext">Voiceline is completely free and unpaywalled. All themes, stickers, sounds, and customizations are yours to enjoy without paying a single cent.</p>
+      </div>
+      <div class="modal-actions mt-20">
+        <button type="button" class="primary-btn btn-full" id="dismissEasterEggBtn">Keep Chatting</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Community Feedback Forum & Composer Modal -->
+  <div class="modal-overlay hidden" id="feedbackModalOverlay">
+    <div class="modal-card feedback-forum-modal-card">
+      <div class="feedback-forum-header">
+        <div class="feedback-header-left">
+          <div class="feedback-title-row">
+            <span class="feedback-header-icon">💬</span>
+            <div>
+              <h2>Community Feedback & Ideas</h2>
+              <p>Share suggestions, feature requests, or browse community feedback.</p>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="modal-close-x" id="closeFeedbackModalBtn" title="Close (ESC)">&times;</button>
+      </div>
+
+      <!-- Feedback Composer -->
+      <div class="feedback-composer-card">
+        <div class="feedback-composer-label">SUBMIT YOUR FEEDBACK</div>
+        <form id="feedbackForm" autocomplete="off">
+          <textarea 
+            id="feedbackContentInput" 
+            class="feedback-textarea" 
+            placeholder="Have an idea for a new feature? Found something we could improve? Write your feedback here..." 
+            maxlength="2000" 
+            rows="3" 
+            required
+          ></textarea>
+          <div class="feedback-composer-bottom">
+            <div class="feedback-char-count"><span id="feedbackCharCount">0</span>/2000</div>
+            <button type="submit" class="feedback-submit-btn" id="submitFeedbackBtn">
+              <span class="submit-btn-text">Submit Feedback</span>
+              <span class="submit-btn-spinner hidden" id="feedbackSubmitSpinner"></span>
+            </button>
+          </div>
+        </form>
+        <div class="auth-error mt-10 hidden" id="feedbackSubmitError"></div>
+        <div class="feedback-submit-success hidden" id="feedbackSubmitSuccess">
+          ✓ Feedback submitted! Thank you for helping improve Voiceline.
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="feedback-filter-bar">
+        <div class="feedback-filter-chips">
+          <button type="button" class="feedback-filter-chip active" data-filter="all">All (<span id="feedbackCountAll">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="pending">🟡 Pending (<span id="feedbackCountPending">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="considering">🟠 Considering (<span id="feedbackCountConsidering">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="accepted">🟢 Accepted (<span id="feedbackCountAccepted">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="denied">🔴 Denied (<span id="feedbackCountDenied">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="accepted_already_exists">✨ Accepted & Exists (<span id="feedbackCountAcceptedAlreadyExists">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="already_exists">💡 Already Exists (<span id="feedbackCountAlreadyExists">0</span>)</button>
+        </div>
+        <button type="button" class="feedback-refresh-btn" id="refreshFeedbackBtn" title="Refresh Feedback">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Feedback List Scroll Container -->
+      <div class="feedback-list-scroll" id="feedbackListScroll">
+        <div class="feedback-list" id="feedbackItemsList"></div>
+        <div class="feedback-empty-state hidden" id="feedbackEmptyState">
+          <div class="empty-state-icon">💡</div>
+          <h3>No feedback submissions yet</h3>
+          <p>Be the first to share your ideas using the composer above!</p>
+        </div>
+        <div class="feedback-loading-state" id="feedbackLoadingState">
+          <div class="feedback-spinner"></div>
+          <span>Loading community feedback...</span>
+        </div>
       </div>
     </div>
   </div>

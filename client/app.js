@@ -529,6 +529,9 @@ function loginSuccess(newToken, user) {
   loadServers().then(() => {
     connectWebSocket();
     loadFriends();
+    if (typeof checkFeedbackStatus === 'function') {
+      checkFeedbackStatus();
+    }
   });
 }
 
@@ -901,6 +904,9 @@ async function checkCurrentSession() {
       await loadServers();
       await loadFriends();
       connectWebSocket();
+      if (typeof checkFeedbackStatus === 'function') {
+        checkFeedbackStatus();
+      }
     } else {
       localStorage.removeItem('voiceline_token');
       token = null;
@@ -2298,6 +2304,18 @@ function connectWebSocket() {
         handleWebRtcIceCandidate(msg);
       } else if (msg.type === 'video_state') {
         handleRemoteVideoState(msg);
+      } else if (msg.type === 'feedback_created') {
+        if (typeof handleFeedbackCreatedEvent === 'function') {
+          handleFeedbackCreatedEvent(msg.feedback);
+        }
+      } else if (msg.type === 'feedback_updated') {
+        if (typeof handleFeedbackUpdatedEvent === 'function') {
+          handleFeedbackUpdatedEvent(msg.feedback);
+        }
+      } else if (msg.type === 'feedback_deleted') {
+        if (typeof handleFeedbackDeletedEvent === 'function') {
+          handleFeedbackDeletedEvent(msg.feedbackId);
+        }
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -3479,6 +3497,571 @@ if (theaterHangupBtn) {
     endVoiceCall(true);
   });
 }
+
+// ==========================================
+// TOP PROMOTIONAL BANNER & NITRO EASTER EGG
+// ==========================================
+const globalPromoBanner = document.getElementById('globalPromoBanner');
+const promoClaimBtn = document.getElementById('promoClaimBtn');
+const promoCloseBtn = document.getElementById('promoCloseBtn');
+const easterEggOfferModalOverlay = document.getElementById('easterEggOfferModalOverlay');
+const closeEasterEggBtn = document.getElementById('closeEasterEggBtn');
+const dismissEasterEggBtn = document.getElementById('dismissEasterEggBtn');
+
+function closeEasterEgg() {
+  if (easterEggOfferModalOverlay) {
+    easterEggOfferModalOverlay.classList.add('hidden');
+  }
+}
+
+function initPromoBanner() {
+  if (!globalPromoBanner) return;
+
+  const isDismissed = localStorage.getItem('voiceline_promo_banner_dismissed') === 'true';
+  if (isDismissed) {
+    globalPromoBanner.classList.add('dismissed');
+    document.documentElement.classList.add('promo-dismissed');
+  }
+
+  if (promoCloseBtn) {
+    promoCloseBtn.addEventListener('click', () => {
+      localStorage.setItem('voiceline_promo_banner_dismissed', 'true');
+      document.documentElement.classList.add('promo-dismissed');
+      globalPromoBanner.classList.add('dismissed');
+    });
+  }
+
+  if (promoClaimBtn) {
+    promoClaimBtn.addEventListener('click', () => {
+      if (easterEggOfferModalOverlay) {
+        easterEggOfferModalOverlay.classList.remove('hidden');
+      }
+    });
+  }
+
+  if (closeEasterEggBtn) closeEasterEggBtn.addEventListener('click', closeEasterEgg);
+  if (dismissEasterEggBtn) dismissEasterEggBtn.addEventListener('click', closeEasterEgg);
+  if (easterEggOfferModalOverlay) {
+    easterEggOfferModalOverlay.addEventListener('click', (e) => {
+      if (e.target === easterEggOfferModalOverlay) closeEasterEgg();
+    });
+  }
+}
+
+// ==========================================
+// COMMUNITY FEEDBACK FORUM & COMPOSER
+// ==========================================
+const feedbackModalOverlay = document.getElementById('feedbackModalOverlay');
+const closeFeedbackModalBtn = document.getElementById('closeFeedbackModalBtn');
+const feedbackForm = document.getElementById('feedbackForm');
+const feedbackContentInput = document.getElementById('feedbackContentInput');
+const feedbackCharCount = document.getElementById('feedbackCharCount');
+const submitFeedbackBtn = document.getElementById('submitFeedbackBtn');
+const feedbackSubmitSpinner = document.getElementById('feedbackSubmitSpinner');
+const feedbackSubmitSuccess = document.getElementById('feedbackSubmitSuccess');
+const feedbackSubmitError = document.getElementById('feedbackSubmitError');
+const refreshFeedbackBtn = document.getElementById('refreshFeedbackBtn');
+const feedbackItemsList = document.getElementById('feedbackItemsList');
+const feedbackEmptyState = document.getElementById('feedbackEmptyState');
+const feedbackLoadingState = document.getElementById('feedbackLoadingState');
+
+const feedbackCountAll = document.getElementById('feedbackCountAll');
+const feedbackCountPending = document.getElementById('feedbackCountPending');
+const feedbackCountConsidering = document.getElementById('feedbackCountConsidering');
+const feedbackCountAccepted = document.getElementById('feedbackCountAccepted');
+const feedbackCountDenied = document.getElementById('feedbackCountDenied');
+const feedbackCountAcceptedAlreadyExists = document.getElementById('feedbackCountAcceptedAlreadyExists');
+const feedbackCountAlreadyExists = document.getElementById('feedbackCountAlreadyExists');
+
+let communityFeedbackList = [];
+let userHasSubmittedFeedback = false;
+let currentFeedbackFilter = 'all';
+let isSubmittingFeedback = false;
+
+function formatRelativeTime(isoString) {
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffSec = Math.floor((now - date) / 1000);
+    if (diffSec < 45) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHour = Math.floor(diffMin / 60);
+    if (diffHour < 24) return `${diffHour}h ago`;
+    const diffDays = Math.floor(diffHour / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return 'Recently';
+  }
+}
+
+function updateFeedbackButtonGlow() {
+  const btns = document.querySelectorAll('.top-feedback-btn');
+  const shouldGlow = Boolean(token && currentUser && !userHasSubmittedFeedback);
+  btns.forEach(btn => {
+    if (btn) {
+      btn.classList.toggle('has-unsubmitted-glow', shouldGlow);
+    }
+  });
+}
+
+async function checkFeedbackStatus() {
+  if (!token) {
+    updateFeedbackButtonGlow();
+    return;
+  }
+  try {
+    const res = await fetch('/api/feedback', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      communityFeedbackList = Array.isArray(data.feedback) ? data.feedback : [];
+      userHasSubmittedFeedback = Boolean(data.hasSubmitted);
+      updateFeedbackButtonGlow();
+      if (feedbackModalOverlay && !feedbackModalOverlay.classList.contains('hidden')) {
+        renderFeedbackList();
+      }
+    }
+  } catch (err) {
+    console.error('Failed to check feedback status:', err);
+  }
+}
+
+function openFeedbackModal() {
+  if (!feedbackModalOverlay) return;
+  feedbackModalOverlay.classList.remove('hidden');
+  if (feedbackSubmitSuccess) feedbackSubmitSuccess.classList.add('hidden');
+  if (feedbackSubmitError) feedbackSubmitError.classList.add('hidden');
+  renderFeedbackList();
+  if (token) {
+    checkFeedbackStatus();
+  }
+  if (feedbackContentInput) {
+    setTimeout(() => feedbackContentInput.focus(), 100);
+  }
+}
+
+function closeFeedbackModal() {
+  if (feedbackModalOverlay) {
+    feedbackModalOverlay.classList.add('hidden');
+  }
+}
+
+function updateFilterCounts() {
+  const counts = {
+    all: communityFeedbackList.length,
+    pending: 0,
+    considering: 0,
+    accepted: 0,
+    denied: 0,
+    accepted_already_exists: 0,
+    already_exists: 0
+  };
+  communityFeedbackList.forEach(item => {
+    const st = (item.status || 'pending').toLowerCase();
+    if (counts[st] !== undefined) counts[st]++;
+  });
+  if (feedbackCountAll) feedbackCountAll.textContent = counts.all;
+  if (feedbackCountPending) feedbackCountPending.textContent = counts.pending;
+  if (feedbackCountConsidering) feedbackCountConsidering.textContent = counts.considering;
+  if (feedbackCountAccepted) feedbackCountAccepted.textContent = counts.accepted;
+  if (feedbackCountDenied) feedbackCountDenied.textContent = counts.denied;
+  if (feedbackCountAcceptedAlreadyExists) feedbackCountAcceptedAlreadyExists.textContent = counts.accepted_already_exists;
+  if (feedbackCountAlreadyExists) feedbackCountAlreadyExists.textContent = counts.already_exists;
+}
+
+function renderFeedbackList() {
+  if (!feedbackItemsList) return;
+
+  if (feedbackLoadingState) feedbackLoadingState.classList.add('hidden');
+  updateFilterCounts();
+
+  let filtered = communityFeedbackList;
+  if (currentFeedbackFilter !== 'all') {
+    filtered = communityFeedbackList.filter(f => (f.status || 'pending').toLowerCase() === currentFeedbackFilter);
+  }
+
+  if (filtered.length === 0) {
+    feedbackItemsList.innerHTML = '';
+    if (feedbackEmptyState) feedbackEmptyState.classList.remove('hidden');
+    return;
+  }
+
+  if (feedbackEmptyState) feedbackEmptyState.classList.add('hidden');
+  feedbackItemsList.innerHTML = '';
+
+  const isDev = Boolean(currentUser && (currentUser.isDeveloper || currentUser.isDev));
+
+  filtered.forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'feedback-card';
+    card.setAttribute('data-id', f.id);
+
+    const st = (f.status || 'pending').toLowerCase();
+    const stLabels = {
+      pending: '🟡 Pending',
+      considering: '🟠 Considering',
+      accepted: '🟢 Accepted',
+      denied: '🔴 Denied',
+      accepted_already_exists: '✨ Accepted & Already Exists',
+      already_exists: '💡 Already Exists'
+    };
+    const stBadgeText = stLabels[st] || '🟡 Pending';
+    const relativeTime = formatRelativeTime(f.createdAt);
+
+    const avatarHtml = createAvatarHtml({
+      avatarUrl: f.authorAvatarUrl,
+      displayName: f.authorName,
+      username: f.authorUsername,
+      className: 'feedback-author-avatar'
+    });
+
+    const devResponseHtml = f.devResponse ? `
+      <div class="feedback-dev-response-box">
+        <div class="feedback-dev-response-header">
+          <span class="feedback-dev-badge">DEVELOPER RESPONSE</span>
+          <span class="feedback-dev-author">${escapeHtml(f.devAuthorName || 'Developer')}</span>
+        </div>
+        <p class="feedback-dev-reply-text">${escapeHtml(f.devResponse)}</p>
+      </div>
+    ` : '';
+
+    const devActionsHtml = isDev ? `
+      <div class="feedback-dev-actions">
+        <span class="dev-action-label">Dev Controls:</span>
+        <select class="feedback-status-select" data-id="${f.id}">
+          <option value="pending" ${st === 'pending' ? 'selected' : ''}>🟡 Pending</option>
+          <option value="considering" ${st === 'considering' ? 'selected' : ''}>🟠 Considering</option>
+          <option value="accepted" ${st === 'accepted' ? 'selected' : ''}>🟢 Accepted</option>
+          <option value="denied" ${st === 'denied' ? 'selected' : ''}>🔴 Denied</option>
+          <option value="accepted_already_exists" ${st === 'accepted_already_exists' ? 'selected' : ''}>✨ Accepted & Already Exists</option>
+          <option value="already_exists" ${st === 'already_exists' ? 'selected' : ''}>💡 Already Exists</option>
+        </select>
+        <button type="button" class="dev-action-btn btn-toggle-reply" data-id="${f.id}">
+          ${f.devResponse ? 'Edit Response' : 'Reply as Dev'}
+        </button>
+        <button type="button" class="dev-action-btn danger-action btn-delete-feedback" data-id="${f.id}">
+          Delete
+        </button>
+      </div>
+      <div class="feedback-dev-reply-form hidden" id="devReplyForm_${f.id}">
+        <textarea class="feedback-dev-reply-textarea" placeholder="Write developer response...">${escapeHtml(f.devResponse || '')}</textarea>
+        <div class="feedback-dev-reply-actions">
+          <button type="button" class="dev-action-btn btn-cancel-dev-reply" data-id="${f.id}">Cancel</button>
+          <button type="button" class="primary-btn btn-sm btn-save-dev-reply" data-id="${f.id}">Save Response</button>
+        </div>
+      </div>
+    ` : '';
+
+    card.innerHTML = `
+      <div class="feedback-card-header">
+        <div class="feedback-author-row">
+          ${avatarHtml}
+          <div class="feedback-author-meta">
+            <div class="feedback-author-name-row">
+              <span class="feedback-author-name">${escapeHtml(f.authorName || 'User')}</span>
+              <span class="feedback-author-handle">@${escapeHtml(f.authorUsername || 'user')}</span>
+              ${f.isDeveloper ? '<span class="dev-badge">DEV</span>' : ''}
+            </div>
+            <span class="feedback-timestamp">${escapeHtml(relativeTime)}</span>
+          </div>
+        </div>
+        <div class="status-pill status-${st}">${stBadgeText}</div>
+      </div>
+      <p class="feedback-card-text">${escapeHtml(f.content)}</p>
+      ${devResponseHtml}
+      ${devActionsHtml}
+    `;
+
+    feedbackItemsList.appendChild(card);
+  });
+
+  // Attach Developer listeners
+  if (isDev) {
+    feedbackItemsList.querySelectorAll('.feedback-status-select').forEach(sel => {
+      sel.addEventListener('change', async (e) => {
+        const id = Number(e.target.getAttribute('data-id'));
+        const newStatus = e.target.value;
+        const currentItem = communityFeedbackList.find(x => x.id === id);
+        await saveFeedbackStatusAndResponse(id, newStatus, currentItem ? currentItem.devResponse : null);
+      });
+    });
+
+    feedbackItemsList.querySelectorAll('.btn-toggle-reply').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = Number(e.currentTarget.getAttribute('data-id'));
+        const form = document.getElementById(`devReplyForm_${id}`);
+        if (form) {
+          form.classList.toggle('hidden');
+          if (!form.classList.contains('hidden')) {
+            const ta = form.querySelector('.feedback-dev-reply-textarea');
+            if (ta) ta.focus();
+          }
+        }
+      });
+    });
+
+    feedbackItemsList.querySelectorAll('.btn-cancel-dev-reply').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = Number(e.currentTarget.getAttribute('data-id'));
+        const form = document.getElementById(`devReplyForm_${id}`);
+        if (form) form.classList.add('hidden');
+      });
+    });
+
+    feedbackItemsList.querySelectorAll('.btn-save-dev-reply').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = Number(e.currentTarget.getAttribute('data-id'));
+        const form = document.getElementById(`devReplyForm_${id}`);
+        if (!form) return;
+        const ta = form.querySelector('.feedback-dev-reply-textarea');
+        const replyText = ta ? ta.value.trim() : '';
+        const currentItem = communityFeedbackList.find(x => x.id === id);
+        const st = currentItem ? currentItem.status : 'pending';
+        btn.disabled = true;
+        await saveFeedbackStatusAndResponse(id, st, replyText || null);
+        btn.disabled = false;
+        form.classList.add('hidden');
+      });
+    });
+
+    feedbackItemsList.querySelectorAll('.btn-delete-feedback').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = Number(e.currentTarget.getAttribute('data-id'));
+        if (confirm('Are you sure you want to delete this feedback post?')) {
+          await deleteFeedbackItem(id);
+        }
+      });
+    });
+  }
+}
+
+async function saveFeedbackStatusAndResponse(id, status, devResponse) {
+  if (!token) return;
+  try {
+    const res = await fetch(`/api/feedback/${id}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ status, devResponse })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const updated = data.feedback;
+      const idx = communityFeedbackList.findIndex(x => x.id === id);
+      if (idx !== -1) {
+        communityFeedbackList[idx] = updated;
+      }
+      renderFeedbackList();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to update feedback status.');
+    }
+  } catch (err) {
+    console.error('Error updating feedback:', err);
+    alert('Network error while updating feedback.');
+  }
+}
+
+async function deleteFeedbackItem(id) {
+  if (!token) return;
+  try {
+    const res = await fetch(`/api/feedback/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      communityFeedbackList = communityFeedbackList.filter(x => x.id !== id);
+      renderFeedbackList();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to delete feedback.');
+    }
+  } catch (err) {
+    console.error('Error deleting feedback:', err);
+    alert('Network error while deleting feedback.');
+  }
+}
+
+async function handleFeedbackSubmit(e) {
+  if (e) e.preventDefault();
+  if (isSubmittingFeedback) return;
+
+  const content = feedbackContentInput ? feedbackContentInput.value.trim() : '';
+  if (!content) {
+    if (feedbackSubmitError) {
+      feedbackSubmitError.textContent = 'Please enter your feedback before submitting.';
+      feedbackSubmitError.classList.remove('hidden');
+    }
+    return;
+  }
+
+  isSubmittingFeedback = true;
+  if (submitFeedbackBtn) submitFeedbackBtn.disabled = true;
+  if (feedbackSubmitSpinner) feedbackSubmitSpinner.classList.remove('hidden');
+  if (feedbackSubmitError) feedbackSubmitError.classList.add('hidden');
+  if (feedbackSubmitSuccess) feedbackSubmitSuccess.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ content })
+    });
+
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      userHasSubmittedFeedback = true;
+      updateFeedbackButtonGlow();
+
+      if (feedbackContentInput) {
+        feedbackContentInput.value = '';
+      }
+      if (feedbackCharCount) {
+        feedbackCharCount.textContent = '0';
+      }
+
+      if (feedbackSubmitSuccess) {
+        feedbackSubmitSuccess.classList.remove('hidden');
+        setTimeout(() => {
+          if (feedbackSubmitSuccess) feedbackSubmitSuccess.classList.add('hidden');
+        }, 5000);
+      }
+
+      if (data.feedback) {
+        const existingIdx = communityFeedbackList.findIndex(x => x.id === data.feedback.id);
+        if (existingIdx === -1) {
+          communityFeedbackList.unshift(data.feedback);
+        }
+      }
+      renderFeedbackList();
+    } else {
+      if (feedbackSubmitError) {
+        feedbackSubmitError.textContent = data.error || 'Failed to submit feedback.';
+        feedbackSubmitError.classList.remove('hidden');
+      }
+    }
+  } catch (err) {
+    if (feedbackSubmitError) {
+      feedbackSubmitError.textContent = 'Network error while submitting feedback. Please try again.';
+      feedbackSubmitError.classList.remove('hidden');
+    }
+  } finally {
+    isSubmittingFeedback = false;
+    if (submitFeedbackBtn) submitFeedbackBtn.disabled = false;
+    if (feedbackSubmitSpinner) feedbackSubmitSpinner.classList.add('hidden');
+  }
+}
+
+function handleFeedbackCreatedEvent(feedback) {
+  if (!feedback) return;
+  const idx = communityFeedbackList.findIndex(x => x.id === feedback.id);
+  if (idx === -1) {
+    communityFeedbackList.unshift(feedback);
+  } else {
+    communityFeedbackList[idx] = feedback;
+  }
+  if (currentUser && Number(feedback.userId) === Number(currentUser.id)) {
+    userHasSubmittedFeedback = true;
+    updateFeedbackButtonGlow();
+  }
+  if (feedbackModalOverlay && !feedbackModalOverlay.classList.contains('hidden')) {
+    renderFeedbackList();
+  }
+}
+
+function handleFeedbackUpdatedEvent(feedback) {
+  if (!feedback) return;
+  const idx = communityFeedbackList.findIndex(x => x.id === feedback.id);
+  if (idx !== -1) {
+    communityFeedbackList[idx] = feedback;
+  } else {
+    communityFeedbackList.unshift(feedback);
+  }
+  if (feedbackModalOverlay && !feedbackModalOverlay.classList.contains('hidden')) {
+    renderFeedbackList();
+  }
+}
+
+function handleFeedbackDeletedEvent(feedbackId) {
+  communityFeedbackList = communityFeedbackList.filter(x => x.id !== Number(feedbackId));
+  if (feedbackModalOverlay && !feedbackModalOverlay.classList.contains('hidden')) {
+    renderFeedbackList();
+  }
+}
+
+function bindFeedbackForumControls() {
+  // Top feedback buttons click
+  document.querySelectorAll('.top-feedback-btn').forEach(btn => {
+    btn.addEventListener('click', openFeedbackModal);
+  });
+
+  // Modal close button
+  if (closeFeedbackModalBtn) {
+    closeFeedbackModalBtn.addEventListener('click', closeFeedbackModal);
+  }
+  if (feedbackModalOverlay) {
+    feedbackModalOverlay.addEventListener('click', (e) => {
+      if (e.target === feedbackModalOverlay) closeFeedbackModal();
+    });
+  }
+
+  // Textarea input character count
+  if (feedbackContentInput) {
+    feedbackContentInput.addEventListener('input', () => {
+      if (feedbackCharCount) {
+        feedbackCharCount.textContent = feedbackContentInput.value.length;
+      }
+      if (feedbackSubmitError) feedbackSubmitError.classList.add('hidden');
+    });
+  }
+
+  // Form submit
+  if (feedbackForm) {
+    feedbackForm.addEventListener('submit', handleFeedbackSubmit);
+  }
+
+  // Filter chips
+  document.querySelectorAll('.feedback-filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.feedback-filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      currentFeedbackFilter = chip.getAttribute('data-filter') || 'all';
+      renderFeedbackList();
+    });
+  });
+
+  // Refresh button
+  if (refreshFeedbackBtn) {
+    refreshFeedbackBtn.addEventListener('click', async () => {
+      refreshFeedbackBtn.style.transform = 'rotate(180deg)';
+      setTimeout(() => { refreshFeedbackBtn.style.transform = ''; }, 300);
+      await checkFeedbackStatus();
+    });
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (feedbackModalOverlay && !feedbackModalOverlay.classList.contains('hidden')) {
+      closeFeedbackModal();
+    }
+    if (easterEggOfferModalOverlay && !easterEggOfferModalOverlay.classList.contains('hidden')) {
+      closeEasterEgg();
+    }
+  }
+});
+
+initPromoBanner();
+bindFeedbackForumControls();
 
 // Boot check
 checkCurrentSession();

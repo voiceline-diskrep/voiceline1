@@ -200,6 +200,29 @@ for (const s of allServers) {
   }
 }
 
+// Feedback & Community Forum System
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      author_name TEXT NOT NULL,
+      author_username TEXT NOT NULL,
+      author_avatar_url TEXT DEFAULT NULL,
+      content TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      dev_response TEXT DEFAULT NULL,
+      dev_response_by INTEGER DEFAULT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      is_deleted INTEGER DEFAULT 0,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id, is_deleted);
+  `);
+} catch {}
+
 // Password Security Helpers
 function generateSalt() {
   return crypto.randomBytes(16).toString('hex');
@@ -1166,6 +1189,123 @@ function getStorageStats(uploadsDir) {
   };
 }
 
+// ==========================================
+// FEEDBACK & COMMUNITY FORUM HELPERS
+// ==========================================
+
+const insertFeedbackStmt = db.prepare(`
+  INSERT INTO feedback (user_id, author_name, author_username, author_avatar_url, content, status, dev_response, dev_response_by, created_at, updated_at, is_deleted)
+  VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, 0)
+`);
+
+const getFeedbackByIdStmt = db.prepare(`
+  SELECT f.id, f.user_id AS userId, f.content, f.status, f.dev_response AS devResponse,
+         f.dev_response_by AS devResponseBy, f.created_at AS createdAt, f.updated_at AS updatedAt,
+         COALESCE(u.display_name, f.author_name) AS authorName,
+         COALESCE(u.username, f.author_username) AS authorUsername,
+         COALESCE(u.avatar_url, f.author_avatar_url) AS authorAvatarUrl,
+         COALESCE(u.is_developer, 0) AS isDeveloper,
+         dev.display_name AS devAuthorName,
+         dev.username AS devAuthorUsername,
+         dev.avatar_url AS devAuthorAvatarUrl
+  FROM feedback f
+  LEFT JOIN users u ON f.user_id = u.id
+  LEFT JOIN users dev ON f.dev_response_by = dev.id
+  WHERE f.id = ? AND f.is_deleted = 0
+`);
+
+function getFeedbackById(id) {
+  const row = getFeedbackByIdStmt.get(Number(id));
+  if (!row) return null;
+  return {
+    ...row,
+    isDeveloper: Boolean(row.isDeveloper)
+  };
+}
+
+function createFeedback({ userId, authorName, authorUsername, authorAvatarUrl, content }) {
+  const cleanContent = String(content || '').trim().slice(0, 2000);
+  if (!cleanContent) throw new Error('Feedback content cannot be empty.');
+  const now = new Date().toISOString();
+  const res = insertFeedbackStmt.run(
+    Number(userId),
+    String(authorName || 'User').trim().slice(0, 32),
+    String(authorUsername || 'user').trim().slice(0, 32),
+    authorAvatarUrl || null,
+    cleanContent,
+    now,
+    now
+  );
+  return getFeedbackById(Number(res.lastInsertRowid));
+}
+
+const getAllFeedbackStmt = db.prepare(`
+  SELECT f.id, f.user_id AS userId, f.content, f.status, f.dev_response AS devResponse,
+         f.dev_response_by AS devResponseBy, f.created_at AS createdAt, f.updated_at AS updatedAt,
+         COALESCE(u.display_name, f.author_name) AS authorName,
+         COALESCE(u.username, f.author_username) AS authorUsername,
+         COALESCE(u.avatar_url, f.author_avatar_url) AS authorAvatarUrl,
+         COALESCE(u.is_developer, 0) AS isDeveloper,
+         dev.display_name AS devAuthorName,
+         dev.username AS devAuthorUsername,
+         dev.avatar_url AS devAuthorAvatarUrl
+  FROM feedback f
+  LEFT JOIN users u ON f.user_id = u.id
+  LEFT JOIN users dev ON f.dev_response_by = dev.id
+  WHERE f.is_deleted = 0
+  ORDER BY f.id DESC
+`);
+
+function getAllFeedback() {
+  const rows = getAllFeedbackStmt.all();
+  return rows.map(r => ({
+    ...r,
+    isDeveloper: Boolean(r.isDeveloper)
+  }));
+}
+
+const updateFeedbackStatusStmt = db.prepare(`
+  UPDATE feedback
+  SET status = ?, dev_response = ?, dev_response_by = ?, updated_at = ?
+  WHERE id = ? AND is_deleted = 0
+`);
+
+function updateFeedbackStatus({ feedbackId, status, devResponse = null, devUserId = null }) {
+  const validStatuses = ['accepted', 'considering', 'denied', 'pending', 'accepted_already_exists', 'already_exists'];
+  const cleanStatus = validStatuses.includes(status) ? status : 'pending';
+  const cleanResponse = (devResponse !== undefined && devResponse !== null && String(devResponse).trim().length > 0)
+    ? String(devResponse).trim().slice(0, 1000)
+    : null;
+  const now = new Date().toISOString();
+  updateFeedbackStatusStmt.run(
+    cleanStatus,
+    cleanResponse,
+    devUserId ? Number(devUserId) : null,
+    now,
+    Number(feedbackId)
+  );
+  return getFeedbackById(feedbackId);
+}
+
+const deleteFeedbackStmt = db.prepare(`
+  UPDATE feedback SET is_deleted = 1 WHERE id = ?
+`);
+
+function deleteFeedback({ feedbackId }) {
+  deleteFeedbackStmt.run(Number(feedbackId));
+  return { id: Number(feedbackId) };
+}
+
+const hasUserSubmittedFeedbackStmt = db.prepare(`
+  SELECT COUNT(*) AS count FROM feedback WHERE user_id = ? AND is_deleted = 0
+`);
+
+function hasUserSubmittedFeedback(userId) {
+  if (!userId) return false;
+  const row = hasUserSubmittedFeedbackStmt.get(Number(userId));
+  return Boolean(row && row.count > 0);
+}
+
 module.exports = {
   createUser,
   authenticateUser,
@@ -1204,5 +1344,11 @@ module.exports = {
   getStorageStats,
   formatBytes,
   getAllUsersForAdmin,
-  deleteUserAccount
+  deleteUserAccount,
+  createFeedback,
+  getFeedbackById,
+  getAllFeedback,
+  updateFeedbackStatus,
+  deleteFeedback,
+  hasUserSubmittedFeedback
 };
