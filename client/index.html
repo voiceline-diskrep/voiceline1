@@ -220,13 +220,19 @@
       <div class="user-card-body">
         <div class="user-card-avatar-wrapper">
           <div class="user-card-avatar" id="viewUserAvatar">U</div>
+          <div class="user-status-badge status-large status-offline" id="viewUserStatusBadge" title="Offline"></div>
         </div>
         <div class="user-card-info">
           <div class="user-card-display-row">
             <h3 class="user-card-display-name" id="viewUserDisplayName">User Name</h3>
             <span class="dev-badge hidden" id="viewUserDevBadge">DEV</span>
+            <span class="user-status-pill status-pill-offline" id="viewUserStatusPill">Offline</span>
           </div>
           <div class="user-card-handle" id="viewUserHandle">@username</div>
+          <div class="user-card-custom-status-box hidden" id="viewUserCustomStatusBox">
+            <span class="custom-status-emoji-lg" id="viewUserCustomStatusEmoji"></span>
+            <span class="custom-status-text-lg" id="viewUserCustomStatusText"></span>
+          </div>
           <div class="user-card-mutual-row" id="viewUserMutualRow">
             <span class="mutual-text" id="viewUserMutualText">0 Mutual Friends • 0 Mutual Servers</span>
           </div>
@@ -460,15 +466,30 @@
             <span>Feedback</span>
           </button>
 
+          <!-- Notification Center Bell Trigger -->
+          <button type="button" class="top-header-btn top-notif-btn" id="chatNotifBtn" title="Inbox & Notifications">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+            </svg>
+            <span class="notif-badge hidden" id="chatNotifBadge">0</span>
+          </button>
+
           <!-- User Profile Capsule -->
           <div class="user-capsule" id="userCapsule">
-            <div class="user-avatar" id="currentUserAvatar">U</div>
+            <div class="user-avatar-wrap" id="userAvatarWrap1">
+              <div class="user-avatar" id="currentUserAvatar">U</div>
+              <div class="user-status-badge status-online" id="currentUserStatusBadge" title="Online"></div>
+            </div>
             <div class="user-meta">
               <div class="user-display-row">
                 <span class="user-name" id="currentUserName">Loading...</span>
                 <span class="dev-badge hidden" id="currentUserDevBadge">DEV</span>
               </div>
               <span class="user-handle" id="currentUserHandle">@user</span>
+              <div class="user-capsule-custom-status hidden" id="currentUserCapsuleCustomStatus">
+                <span class="capsule-status-emoji"></span>
+                <span class="capsule-status-text"></span>
+              </div>
             </div>
             <button type="button" class="logout-btn" id="logoutBtn" title="Log Out">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
@@ -548,15 +569,30 @@
             <span>Feedback</span>
           </button>
 
+          <!-- Notification Center Bell Trigger -->
+          <button type="button" class="top-header-btn top-notif-btn" id="friendsNotifBtn" title="Inbox & Notifications">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+            </svg>
+            <span class="notif-badge hidden" id="friendsNotifBadge">0</span>
+          </button>
+
           <!-- User Profile Capsule repeated in Friends layout header -->
-          <div class="user-capsule" id="friendsUserCapsule" title="Click to edit your profile">
-            <div class="user-avatar" id="currentUserAvatar2">U</div>
+          <div class="user-capsule" id="friendsUserCapsule" title="Click to change status or profile">
+            <div class="user-avatar-wrap" id="userAvatarWrap2">
+              <div class="user-avatar" id="currentUserAvatar2">U</div>
+              <div class="user-status-badge status-online" id="currentUserStatusBadge2" title="Online"></div>
+            </div>
             <div class="user-meta">
               <div class="user-display-row">
                 <span class="user-name" id="currentUserName2">Loading...</span>
                 <span class="dev-badge hidden" id="currentUserDevBadge2">DEV</span>
               </div>
               <span class="user-handle" id="currentUserHandle2">@user</span>
+              <div class="user-capsule-custom-status hidden" id="currentUserCapsuleCustomStatus2">
+                <span class="capsule-status-emoji"></span>
+                <span class="capsule-status-text"></span>
+              </div>
             </div>
             <button type="button" class="logout-btn" id="logoutBtn2" title="Log Out">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
@@ -649,15 +685,30 @@
             <span>Feedback</span>
           </button>
 
+          <!-- Notification Center Bell Trigger -->
+          <button type="button" class="top-header-btn top-notif-btn" id="dmNotifBtn" title="Inbox & Notifications">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+            </svg>
+            <span class="notif-badge hidden" id="dmNotifBadge">0</span>
+          </button>
+
           <!-- User Profile Capsule -->
-          <div class="user-capsule" id="dmUserCapsule" title="Click to edit your profile">
-            <div class="user-avatar" id="currentUserAvatar3">U</div>
+          <div class="user-capsule" id="dmUserCapsule" title="Click to change status or profile">
+            <div class="user-avatar-wrap" id="userAvatarWrap3">
+              <div class="user-avatar" id="currentUserAvatar3">U</div>
+              <div class="user-status-badge status-online" id="currentUserStatusBadge3" title="Online"></div>
+            </div>
             <div class="user-meta">
               <div class="user-display-row">
                 <span class="user-name" id="currentUserName3">Loading...</span>
                 <span class="dev-badge hidden" id="currentUserDevBadge3">DEV</span>
               </div>
               <span class="user-handle" id="currentUserHandle3">@user</span>
+              <div class="user-capsule-custom-status hidden" id="currentUserCapsuleCustomStatus3">
+                <span class="capsule-status-emoji"></span>
+                <span class="capsule-status-text"></span>
+              </div>
             </div>
             <button type="button" class="logout-btn" id="logoutBtn3" title="Log Out">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
@@ -1030,6 +1081,304 @@
           <div class="feedback-spinner"></div>
           <span>Loading community feedback...</span>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Center Dropdown / Popover (Stage 3d.5) -->
+  <div class="notif-panel-overlay hidden" id="notifPanelOverlay">
+    <div class="notif-panel-card" id="notifPanelCard" role="dialog" aria-labelledby="notifPanelTitle">
+      <!-- Panel Header -->
+      <div class="notif-panel-header">
+        <div class="notif-panel-title-wrap">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" class="notif-header-icon">
+            <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+          </svg>
+          <h3 id="notifPanelTitle" class="notif-panel-title">Inbox</h3>
+          <span class="notif-unread-count-pill hidden" id="notifPanelUnreadPill">0 unread</span>
+        </div>
+        <div class="notif-header-actions">
+          <button type="button" class="notif-icon-action-btn" id="notifMarkAllReadBtn" title="Mark all as read">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>
+            </svg>
+          </button>
+          <button type="button" class="notif-icon-action-btn notif-clear-btn" id="notifClearAllBtn" title="Clear all notifications">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+            </svg>
+          </button>
+          <button type="button" class="notif-icon-action-btn" id="notifSettingsBtn" title="Notification Settings">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+            </svg>
+          </button>
+          <button type="button" class="notif-close-x" id="closeNotifPanelBtn" title="Close (ESC)">&times;</button>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="notif-filter-bar">
+        <button type="button" class="notif-filter-tab active" data-filter="all">All</button>
+        <button type="button" class="notif-filter-tab" data-filter="unread">Unread</button>
+        <button type="button" class="notif-filter-tab" data-filter="mentions">@ Mentions</button>
+        <button type="button" class="notif-filter-tab" data-filter="dms">DMs</button>
+        <button type="button" class="notif-filter-tab" data-filter="friends">Friends</button>
+        <button type="button" class="notif-filter-tab" data-filter="system">Calls & System</button>
+      </div>
+
+      <!-- Scrollable Notifications List Container -->
+      <div class="notif-items-scroll" id="notifItemsScroll">
+        <div class="notif-items-list" id="notifItemsList"></div>
+        <div class="notif-empty-state hidden" id="notifEmptyState">
+          <div class="notif-empty-icon">🔔</div>
+          <h4 class="notif-empty-title">All caught up!</h4>
+          <p class="notif-empty-desc">You don't have any notifications right now.</p>
+        </div>
+        <div class="notif-loading-state hidden" id="notifLoadingState">
+          <div class="notif-spinner"></div>
+          <span>Loading notifications...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Status Menu Popout (Discord-style Account Popout - Stage 3d.6) -->
+  <div class="status-menu-popout hidden" id="userStatusMenuPopout" role="menu">
+    <div class="status-popout-user-card">
+      <div class="status-popout-avatar-wrap">
+        <div class="user-avatar" id="statusPopoutAvatar">U</div>
+        <div class="user-status-badge status-online" id="statusPopoutBadge"></div>
+      </div>
+      <div class="status-popout-user-info">
+        <div class="status-popout-name" id="statusPopoutDisplayName">User</div>
+        <div class="status-popout-handle" id="statusPopoutHandle">@user</div>
+      </div>
+    </div>
+
+    <!-- Custom Status Trigger / Display in Popout -->
+    <div class="status-popout-custom-row" id="statusPopoutCustomRow">
+      <button type="button" class="status-popout-custom-btn" id="statusPopoutSetCustomBtn">
+        <span class="custom-status-popout-icon" id="statusPopoutCustomEmoji">💭</span>
+        <span class="custom-status-popout-text" id="statusPopoutCustomText">Set a custom status</span>
+      </button>
+      <button type="button" class="status-popout-clear-custom-btn hidden" id="statusPopoutClearCustomBtn" title="Clear custom status">&times;</button>
+    </div>
+
+    <div class="status-popout-divider"></div>
+
+    <!-- Status Choices List -->
+    <div class="status-popout-options">
+      <button type="button" class="status-popout-item" data-status="online" id="statusChoiceOnline">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-online"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Online</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckOnline">✓</span>
+      </button>
+
+      <button type="button" class="status-popout-item" data-status="idle" id="statusChoiceIdle">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-idle"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Idle</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckIdle">✓</span>
+      </button>
+
+      <button type="button" class="status-popout-item" data-status="dnd" id="statusChoiceDnd">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-dnd"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Do Not Disturb</span>
+            <span class="status-popout-item-sub">Mute casual notifications</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckDnd">✓</span>
+      </button>
+
+      <button type="button" class="status-popout-item" data-status="invisible" id="statusChoiceInvisible">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-offline"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Invisible</span>
+            <span class="status-popout-item-sub">Appear offline to everyone</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckInvisible">✓</span>
+      </button>
+    </div>
+
+    <div class="status-popout-divider"></div>
+
+    <!-- Switch Account / Profile Settings Shortcut -->
+    <div class="status-popout-footer">
+      <button type="button" class="status-popout-footer-btn" id="statusPopoutOpenProfileBtn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+        </svg>
+        <span>Edit Profile</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Custom Status Modal Overlay (Stage 3d.6) -->
+  <div class="modal-overlay hidden" id="customStatusModalOverlay">
+    <div class="modal-card custom-status-modal-card" id="customStatusModalCard">
+      <div class="modal-header">
+        <div>
+          <h2>Set a custom status</h2>
+          <p>Share what you are up to with your friends.</p>
+        </div>
+        <button type="button" class="modal-close-btn" id="closeCustomStatusModalBtn" title="Close (ESC)">&times;</button>
+      </div>
+
+      <div class="custom-status-form-body">
+        <div class="custom-status-input-row">
+          <button type="button" class="custom-status-emoji-trigger" id="customStatusEmojiTrigger" title="Choose emoji">
+            <span id="customStatusSelectedEmoji">💬</span>
+          </button>
+          <input type="text" id="customStatusTextInput" class="discord-input custom-status-text-input" placeholder="What's on your mind?" maxlength="128" />
+        </div>
+
+        <!-- Quick emoji suggestions -->
+        <div class="custom-status-quick-emojis">
+          <span class="quick-emoji-label">Quick suggestions:</span>
+          <div class="quick-emoji-buttons" id="quickEmojiButtons">
+            <button type="button" class="quick-emoji-btn" data-emoji="💬">💬</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🎮">🎮</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="☕">☕</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🎧">🎧</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="💻">💻</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🔥">🔥</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="💤">💤</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="📚">📚</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🍕">🍕</button>
+          </div>
+        </div>
+
+        <!-- Expiration selector -->
+        <div class="form-group mt-15">
+          <label for="customStatusDurationSelect" class="discord-form-label">CLEAR AFTER</label>
+          <select id="customStatusDurationSelect" class="discord-select">
+            <option value="today" selected>Today</option>
+            <option value="4h">4 hours</option>
+            <option value="1h">1 hour</option>
+            <option value="30m">30 minutes</option>
+            <option value="never">Don't clear (Never)</option>
+            <option value="custom">Custom duration...</option>
+          </select>
+        </div>
+
+        <!-- Custom duration minutes input (hidden unless custom selected) -->
+        <div class="form-group mt-10 hidden" id="customStatusMinutesGroup">
+          <label for="customStatusMinutesInput" class="discord-form-label">DURATION IN MINUTES</label>
+          <input type="number" id="customStatusMinutesInput" class="discord-input" min="1" max="43200" placeholder="e.g. 120" value="120" />
+        </div>
+
+        <div class="auth-error mt-10 hidden" id="customStatusError"></div>
+      </div>
+
+      <div class="modal-actions custom-status-actions">
+        <button type="button" class="secondary-btn btn-danger-text hidden" id="modalClearCustomStatusBtn">Clear Status</button>
+        <div class="custom-status-actions-right">
+          <button type="button" class="secondary-btn" id="modalCancelCustomStatusBtn">Cancel</button>
+          <button type="button" class="discord-primary-btn" id="modalSaveCustomStatusBtn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Settings Modal Overlay (Stage 3d.5) -->
+  <div class="modal-overlay hidden" id="notifSettingsModalOverlay">
+    <div class="modal-card notif-settings-modal-card" id="notifSettingsModalCard">
+      <div class="modal-header">
+        <div>
+          <h2>Notification Settings</h2>
+          <p>Control which notifications and sounds you receive.</p>
+        </div>
+        <button type="button" class="modal-close-btn" id="closeNotifSettingsModalBtn" title="Close (ESC)">&times;</button>
+      </div>
+      <div class="notif-settings-body">
+        <div class="notif-settings-section-title">NOTIFICATION CATEGORIES</div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">@ Mentions</span>
+            <span class="notif-toggle-desc">Notifications when someone mentions you in a channel</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleMentions" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Direct Messages (DMs)</span>
+            <span class="notif-toggle-desc">Notifications for private messages from friends</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleDms" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Friend Requests</span>
+            <span class="notif-toggle-desc">Notifications for incoming friend requests and accepted requests</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleFriends" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Voice & Video Calls</span>
+            <span class="notif-toggle-desc">Incoming and missed call alerts</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleCalls" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Community & Feedback</span>
+            <span class="notif-toggle-desc">Feedback status updates from developer</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleFeedback" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+
+        <div class="notif-settings-section-title mt-20">SOUND & ALERTS</div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Notification Sounds</span>
+            <span class="notif-toggle-desc">Play audio chimes when receiving notifications</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleSounds" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Red Urgent Mentions Always Alert</span>
+            <span class="notif-toggle-desc">Triple chime and red flash even in Do Not Disturb</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleUrgentAlert" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="discord-primary-btn btn-full" id="saveNotifSettingsBtn">Done</button>
       </div>
     </div>
   </div>

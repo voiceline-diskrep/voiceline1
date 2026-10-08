@@ -532,6 +532,12 @@ function loginSuccess(newToken, user) {
     if (typeof checkFeedbackStatus === 'function') {
       checkFeedbackStatus();
     }
+    if (typeof initNotificationCenter === 'function') {
+      initNotificationCenter();
+    }
+    if (typeof initUserStatusSystem === 'function') {
+      initUserStatusSystem();
+    }
   });
 }
 
@@ -613,6 +619,10 @@ function applyUserProfile(user) {
     openCreateServerBtn.classList.add('hidden');
     openCreateChannelBtn.classList.add('hidden');
   }
+
+  if (typeof updateCurrentUserStatusUI === 'function') {
+    updateCurrentUserStatusUI();
+  }
 }
 
 async function handleLogout() {
@@ -649,19 +659,14 @@ if (logoutBtn3) logoutBtn3.addEventListener('click', handleLogout);
 // Open My Profile modal when clicking user capsule
 document.querySelectorAll('.user-capsule').forEach(capsule => {
   capsule.addEventListener('click', (e) => {
-    if (e.target.closest('.logout-btn')) return;
-    openMyProfileModal();
+    if (e.target.closest('.logout-btn') || e.target.closest('.call-capsule-participants') || e.target.closest('.user-capsule-settings-btn')) return;
+    e.stopPropagation();
+    if (typeof toggleUserStatusMenuPopout === 'function') {
+      toggleUserStatusMenuPopout(capsule);
+    } else {
+      openMyProfileModal('profile');
+    }
   });
-});
-
-['userCapsule', 'friendsUserCapsule', 'dmUserCapsule'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) {
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.logout-btn')) return;
-      openMyProfileModal();
-    });
-  }
 });
 
 function openMyProfileModal() {
@@ -840,6 +845,31 @@ async function openUserProfile(userId, fallbackInfo = null) {
     viewUserDevBadge.classList.add('hidden');
   }
 
+  // Status Badge, Pill and Custom Status on Profile View
+  const targetStatus = user.status || 'offline';
+  const statusBadgeEl = document.getElementById('viewUserStatusBadge');
+  if (statusBadgeEl && typeof getStatusBadgeClass === 'function') {
+    statusBadgeEl.className = `user-status-badge status-large ${getStatusBadgeClass(targetStatus)}`;
+    statusBadgeEl.title = typeof getStatusLabel === 'function' ? getStatusLabel(targetStatus) : targetStatus;
+  }
+  const statusPillEl = document.getElementById('viewUserStatusPill');
+  if (statusPillEl && typeof getStatusPillClass === 'function') {
+    statusPillEl.className = `user-status-pill ${getStatusPillClass(targetStatus)}`;
+    statusPillEl.textContent = typeof getStatusLabel === 'function' ? getStatusLabel(targetStatus) : targetStatus;
+  }
+  const customStatusBox = document.getElementById('viewUserCustomStatusBox');
+  const customStatusEmoji = document.getElementById('viewUserCustomStatusEmoji');
+  const customStatusText = document.getElementById('viewUserCustomStatusText');
+  if (customStatusBox && customStatusEmoji && customStatusText) {
+    if (user.customStatus && user.customStatus.text) {
+      customStatusEmoji.textContent = user.customStatus.emoji || '';
+      customStatusText.textContent = user.customStatus.text;
+      customStatusBox.classList.remove('hidden');
+    } else {
+      customStatusBox.classList.add('hidden');
+    }
+  }
+
   if (viewUserMutualText) {
     const friendCount = (mutualFriends || []).length;
     const serverCount = (mutualServers || []).length;
@@ -906,6 +936,12 @@ async function checkCurrentSession() {
       connectWebSocket();
       if (typeof checkFeedbackStatus === 'function') {
         checkFeedbackStatus();
+      }
+      if (typeof initNotificationCenter === 'function') {
+        initNotificationCenter();
+      }
+      if (typeof initUserStatusSystem === 'function') {
+        initUserStatusSystem();
       }
     } else {
       localStorage.removeItem('voiceline_token');
@@ -1149,10 +1185,24 @@ function renderFriendsUI() {
           className: 'dm-item-avatar'
         });
 
+        const statusBadgeClass = typeof getStatusBadgeClass === 'function' ? getStatusBadgeClass(f.status) : 'status-offline';
+        const statusLabel = typeof getStatusLabel === 'function' ? getStatusLabel(f.status) : (f.status || 'Offline');
+        const customStatusText = (f.customStatus && f.customStatus.text)
+          ? `<span class="dm-card-custom-status" title="${escapeHtml(f.customStatus.text)}">${escapeHtml(f.customStatus.emoji || '')} ${escapeHtml(f.customStatus.text)}</span>`
+          : '';
+
         item.innerHTML = `
-          ${avatarHtml}
-          <span class="dm-item-name">${escapeHtml(f.displayName || f.username)}</span>
-          ${devBadgeHtml}
+          <div class="user-avatar-wrap">
+            ${avatarHtml}
+            <div class="user-status-badge status-md ${statusBadgeClass}" title="${statusLabel}"></div>
+          </div>
+          <div class="dm-item-meta" style="min-width:0; display:flex; flex-direction:column;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="dm-item-name">${escapeHtml(f.displayName || f.username)}</span>
+              ${devBadgeHtml}
+            </div>
+            ${customStatusText}
+          </div>
         `;
 
         item.addEventListener('click', () => {
@@ -1180,14 +1230,24 @@ function renderFriendsUI() {
         className: 'friend-avatar'
       });
 
+      const statusBadgeClass = typeof getStatusBadgeClass === 'function' ? getStatusBadgeClass(f.status) : 'status-offline';
+      const statusLabel = typeof getStatusLabel === 'function' ? getStatusLabel(f.status) : (f.status || 'Offline');
+      const customStatusRow = (f.customStatus && f.customStatus.text)
+        ? `<div class="friend-card-custom-status" title="${escapeHtml(f.customStatus.text)}">${escapeHtml(f.customStatus.emoji || '')} ${escapeHtml(f.customStatus.text)}</div>`
+        : '';
+
       card.innerHTML = `
         <div class="friend-card-left" title="Click to view profile">
-          ${avatarHtml}
+          <div class="user-avatar-wrap">
+            ${avatarHtml}
+            <div class="user-status-badge status-md ${statusBadgeClass}" title="${statusLabel}"></div>
+          </div>
           <div class="friend-card-meta">
             <div class="friend-card-name-row">
               <span class="friend-card-name">${escapeHtml(f.displayName)}</span>
               ${devBadgeHtml}
             </div>
+            ${customStatusRow}
             <span class="friend-card-handle">@${escapeHtml(f.username)}</span>
           </div>
         </div>
@@ -2316,6 +2376,14 @@ function connectWebSocket() {
         if (typeof handleFeedbackDeletedEvent === 'function') {
           handleFeedbackDeletedEvent(msg.feedbackId);
         }
+      } else if (msg.type === 'notification_created') {
+        if (typeof handleNotificationCreatedEvent === 'function') {
+          handleNotificationCreatedEvent(msg.notification);
+        }
+      } else if (msg.type === 'presence_updated') {
+        if (typeof handlePresenceUpdatedEvent === 'function') {
+          handlePresenceUpdatedEvent(msg);
+        }
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -2427,6 +2495,25 @@ function appendMessage(msg, shouldScroll = true) {
 
   const item = document.createElement('div');
   item.className = 'message-item';
+  if (msg.id) item.setAttribute('data-message-id', String(msg.id));
+
+  // Mention detection & ping handling
+  const isNewlyReceived = shouldScroll;
+  const authorId = msg.authorId !== undefined ? msg.authorId : (msg.author_id !== undefined ? msg.author_id : msg.senderId);
+  if (currentUser && isNewlyReceived && authorId !== currentUser.id && msg.mentions && Array.isArray(msg.mentions)) {
+    const myUsername = (currentUser.username || '').toLowerCase();
+    const myMention = msg.mentions.find(m => (m.username || '').toLowerCase() === myUsername);
+    if (myMention) {
+      const priority = myMention.priority || 'yellow';
+      if (priority === 'red') {
+        item.classList.add('flash-5');
+        playNotificationSound('red');
+      } else {
+        playNotificationSound(priority);
+      }
+    }
+  }
+
   item.innerHTML = `
     ${avatarHtml}
     <div class="message-body">
@@ -2527,6 +2614,7 @@ function appendDmMessage(msg, shouldScroll = true) {
 
   const item = document.createElement('div');
   item.className = 'message-item';
+  if (msg.id) item.setAttribute('data-message-id', String(msg.id));
   item.innerHTML = `
     ${avatarHtml}
     <div class="message-body">
@@ -4060,9 +4148,1505 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// ==========================================================================
+// STAGE 3d.5: NOTIFICATION CENTER & INBOX
+// ==========================================================================
+
+const NOTIF_SETTINGS_KEY = 'voiceline_notif_settings';
+let notificationsList = [];
+let unreadNotificationsCount = 0;
+let currentNotifFilter = 'all';
+
+function defaultNotifSettings() {
+  return {
+    soundsEnabled: true,
+    urgentAlwaysAlert: true,
+    mentions: true,
+    dms: true,
+    friends: true,
+    calls: true,
+    feedback: true,
+    scheduled: true,
+    servers: true
+  };
+}
+
+function getNotificationSettings() {
+  try {
+    const raw = localStorage.getItem(NOTIF_SETTINGS_KEY);
+    if (raw) return { ...defaultNotifSettings(), ...JSON.parse(raw) };
+  } catch {}
+  return defaultNotifSettings();
+}
+
+function saveNotificationSettings(settings) {
+  try {
+    localStorage.setItem(NOTIF_SETTINGS_KEY, JSON.stringify(settings));
+  } catch (err) {
+    console.error('Failed to save notification settings:', err);
+  }
+}
+
+function bindNotificationSettingsUI() {
+  const s = getNotificationSettings();
+
+  const toggleSounds = document.getElementById('notifToggleSounds') || document.getElementById('notifSoundsEnableToggle');
+  const toggleUrgent = document.getElementById('notifToggleUrgentAlert') || document.getElementById('notifUrgentAlwaysAlertToggle');
+  const toggleMentions = document.getElementById('notifToggleMentions') || document.getElementById('notifCategoryMentionsToggle');
+  const toggleDms = document.getElementById('notifToggleDms') || document.getElementById('notifCategoryDmsToggle');
+  const toggleFriends = document.getElementById('notifToggleFriends') || document.getElementById('notifCategoryFriendsToggle');
+  const toggleCalls = document.getElementById('notifToggleCalls') || document.getElementById('notifCategoryCallsToggle');
+  const toggleFeedback = document.getElementById('notifToggleFeedback');
+  const toggleScheduled = document.getElementById('notifCategoryScheduledToggle');
+  const toggleServers = document.getElementById('notifCategoryServersToggle');
+  const clearSettingsBtn = document.getElementById('clearAllNotifsSettingsBtn');
+
+  if (toggleSounds) {
+    toggleSounds.checked = s.soundsEnabled !== false;
+    toggleSounds.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.soundsEnabled = toggleSounds.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleUrgent) {
+    toggleUrgent.checked = s.urgentAlwaysAlert !== false;
+    toggleUrgent.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.urgentAlwaysAlert = toggleUrgent.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleMentions) {
+    toggleMentions.checked = s.mentions !== false;
+    toggleMentions.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.mentions = toggleMentions.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleDms) {
+    toggleDms.checked = s.dms !== false;
+    toggleDms.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.dms = toggleDms.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleFriends) {
+    toggleFriends.checked = s.friends !== false;
+    toggleFriends.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.friends = toggleFriends.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleCalls) {
+    toggleCalls.checked = s.calls !== false;
+    toggleCalls.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.calls = toggleCalls.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleFeedback) {
+    toggleFeedback.checked = s.feedback !== false;
+    toggleFeedback.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.feedback = toggleFeedback.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleScheduled) {
+    toggleScheduled.checked = s.scheduled !== false;
+    toggleScheduled.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.scheduled = toggleScheduled.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (toggleServers) {
+    toggleServers.checked = s.servers !== false;
+    toggleServers.onchange = () => {
+      const cur = getNotificationSettings();
+      cur.servers = toggleServers.checked;
+      saveNotificationSettings(cur);
+    };
+  }
+
+  if (clearSettingsBtn) {
+    clearSettingsBtn.onclick = () => {
+      if (confirm('Are you sure you want to clear all notifications?')) {
+        clearAllNotifs();
+      }
+    };
+  }
+}
+
+// Notification chime synthesizer
+function playNotificationSound(pingLevel = 'yellow') {
+  const settings = getNotificationSettings();
+  const isRed = pingLevel === 'red';
+
+  if (!settings.soundsEnabled && !(isRed && settings.urgentAlwaysAlert)) {
+    return;
+  }
+
+  // DND suppression: casual notifications muted unless urgent red with urgent override
+  if (currentUser && currentUser.status === 'dnd') {
+    if (!isRed || !settings.urgentAlwaysAlert) {
+      return;
+    }
+  }
+
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    if (pingLevel === 'green') {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(659.25, now);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } else if (pingLevel === 'red') {
+      [0, 0.075, 0.15].forEach((delay, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        osc.type = 'square';
+        const freq = idx === 2 ? 1046.5 : 880;
+        osc.frequency.setValueAtTime(freq, now + delay);
+        gain.gain.setValueAtTime(0.001, now + delay);
+        gain.gain.linearRampToValueAtTime(0.22, now + delay + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.08);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2200, now + delay);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now + delay);
+        osc.stop(now + delay + 0.09);
+      });
+    } else {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(1760, now + 0.04);
+      gain.gain.setValueAtTime(0.22, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    }
+  } catch (err) {
+    console.error('Failed to play notification audio chime:', err);
+  }
+}
+
+async function loadNotifications() {
+  if (!token) return;
+  const loadingEl = document.getElementById('notifLoadingState');
+  if (loadingEl && (!notificationsList || notificationsList.length === 0)) {
+    loadingEl.classList.remove('hidden');
+  }
+  try {
+    const res = await fetch('/api/notifications', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      notificationsList = Array.isArray(data.notifications) ? data.notifications : [];
+      unreadNotificationsCount = typeof data.unreadCount === 'number'
+        ? data.unreadCount
+        : notificationsList.filter(n => !n.is_read).length;
+      updateNotifBadge(unreadNotificationsCount);
+      renderNotificationsList();
+    }
+  } catch (err) {
+    console.error('Failed to load notifications:', err);
+  } finally {
+    if (loadingEl) loadingEl.classList.add('hidden');
+  }
+}
+
+function updateNotifBadge(count, animate = false) {
+  unreadNotificationsCount = Math.max(0, count);
+  const badges = [
+    document.getElementById('chatNotifBadge'),
+    document.getElementById('friendsNotifBadge'),
+    document.getElementById('dmNotifBadge')
+  ];
+  const unreadPill = document.getElementById('notifPanelUnreadPill');
+
+  badges.forEach(b => {
+    if (!b) return;
+    if (unreadNotificationsCount > 0) {
+      b.textContent = unreadNotificationsCount > 99 ? '99+' : String(unreadNotificationsCount);
+      b.classList.remove('hidden');
+      if (animate) {
+        b.classList.remove('pop-anim');
+        void b.offsetWidth;
+        b.classList.add('pop-anim');
+      }
+    } else {
+      b.classList.add('hidden');
+      b.textContent = '0';
+    }
+  });
+
+  if (unreadPill) {
+    if (unreadNotificationsCount > 0) {
+      unreadPill.textContent = `${unreadNotificationsCount} unread`;
+      unreadPill.classList.remove('hidden');
+    } else {
+      unreadPill.classList.add('hidden');
+    }
+  }
+}
+
+function formatNotifTimeAgo(dateStr) {
+  if (!dateStr) return '';
+  const now = Date.now();
+  const date = new Date(dateStr);
+  const diffSec = Math.floor((now - date.getTime()) / 1000);
+  if (diffSec < 45) return 'Just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  if (diffSec < 604800) return `${Math.floor(diffSec / 86400)}d ago`;
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function getNotifMeta(type, priority) {
+  let icon = '🔔';
+  let iconClass = 'icon-blue';
+  switch (type) {
+    case 'mention':
+      icon = '@';
+      iconClass = priority === 'red' ? 'icon-red' : (priority === 'green' ? 'icon-green' : 'icon-yellow');
+      break;
+    case 'dm':
+      icon = '💬';
+      iconClass = 'icon-blue';
+      break;
+    case 'friend_request':
+      icon = '👥';
+      iconClass = 'icon-yellow';
+      break;
+    case 'friend_accepted':
+      icon = '🎉';
+      iconClass = 'icon-green';
+      break;
+    case 'call':
+      icon = '📞';
+      iconClass = 'icon-red';
+      break;
+    case 'scheduled':
+      icon = '⏰';
+      iconClass = 'icon-green';
+      break;
+    case 'feedback':
+      icon = '💡';
+      iconClass = 'icon-yellow';
+      break;
+    case 'server':
+      icon = '📢';
+      iconClass = 'icon-yellow';
+      break;
+    default:
+      icon = '✨';
+      iconClass = 'icon-blue';
+      break;
+  }
+  return { icon, iconClass };
+}
+
+const expandedNotifGroups = new Set();
+
+function getNotificationGroupKey(notif) {
+  let p = notif.data;
+  if (typeof p === 'string') {
+    try { p = JSON.parse(p); } catch { p = {}; }
+  }
+  p = p || {};
+  if (notif.type === 'dm') {
+    const fid = p.friendId || p.friend_id || p.senderId || p.sender_id;
+    return fid ? `dm:${fid}` : `notif:${notif.id}`;
+  }
+  if (notif.type === 'mention' || notif.type === 'message' || notif.type === 'reply') {
+    const sId = p.serverId || p.server_id;
+    const cId = p.channelId || p.channel_id;
+    return (sId && cId) ? `channel:${sId}:${cId}` : (sId ? `server:${sId}` : `notif:${notif.id}`);
+  }
+  if (notif.type && notif.type.startsWith('friend')) {
+    const fid = p.friendId || p.friend_id || p.senderId || p.sender_id;
+    return fid ? `friend:${fid}` : `notif:${notif.id}`;
+  }
+  return `single:${notif.id}`;
+}
+
+function getNotificationGroupTitle(notif, count) {
+  let p = notif.data;
+  if (typeof p === 'string') {
+    try { p = JSON.parse(p); } catch { p = {}; }
+  }
+  p = p || {};
+  if (notif.type === 'dm') {
+    const name = p.friendDisplayName || p.friendUsername || notif.title.replace('Direct message from ', '');
+    return `@${name} (Direct Message)`;
+  }
+  if (notif.type === 'mention' || notif.type === 'message' || notif.type === 'reply') {
+    const chan = p.channelName ? `#${p.channelName}` : 'Channel';
+    const srv = p.serverName ? ` in ${p.serverName}` : '';
+    return `${chan}${srv}`;
+  }
+  if (notif.type && notif.type.startsWith('friend')) {
+    const name = p.friendDisplayName || p.friendUsername || 'Friend';
+    return `Friend Activity with @${name}`;
+  }
+  return notif.title || 'Notification Group';
+}
+
+function createNotificationItemEl(notif) {
+  const isUnread = !notif.is_read;
+  const priority = notif.priority || 'yellow';
+  const meta = getNotifMeta(notif.type, priority);
+
+  const itemEl = document.createElement('div');
+  itemEl.className = `notif-card-item ${isUnread ? 'unread' : ''} priority-${priority}`;
+  itemEl.setAttribute('data-id', String(notif.id));
+
+  let priorityBadgeHtml = '';
+  if (priority === 'red') {
+    priorityBadgeHtml = '<span class="notif-priority-tag tag-red">URGENT</span>';
+  } else if (priority === 'green') {
+    priorityBadgeHtml = '<span class="notif-priority-tag tag-green">INFO</span>';
+  }
+
+  itemEl.innerHTML = `
+    <div class="notif-item-unread-dot"></div>
+    <div class="notif-item-icon-box ${meta.iconClass}">${meta.icon}</div>
+    <div class="notif-item-content">
+      <div class="notif-item-top">
+        <div class="notif-item-title-group">
+          <span class="notif-item-title" title="${escapeHtml(notif.title)}">${escapeHtml(notif.title)}</span>
+          ${priorityBadgeHtml}
+        </div>
+        <span class="notif-item-time">${escapeHtml(formatNotifTimeAgo(notif.created_at))}</span>
+      </div>
+      <div class="notif-item-body">${escapeHtml(notif.body || '')}</div>
+    </div>
+    <div class="notif-item-actions">
+      ${isUnread ? `<button type="button" class="notif-item-action-btn btn-read" title="Mark as read">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+      </button>` : ''}
+      <button type="button" class="notif-item-action-btn btn-del" title="Delete notification">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      </button>
+    </div>
+  `;
+
+  itemEl.addEventListener('click', (e) => {
+    if (e.target.closest('.notif-item-action-btn')) return;
+    handleNotificationClick(notif);
+  });
+
+  const readBtn = itemEl.querySelector('.btn-read');
+  if (readBtn) {
+    readBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      markNotifRead(notif.id);
+    });
+  }
+
+  const delBtn = itemEl.querySelector('.btn-del');
+  if (delBtn) {
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteNotif(notif.id);
+    });
+  }
+
+  return itemEl;
+}
+
+function renderNotificationsList() {
+  const listEl = document.getElementById('notifItemsList');
+  const emptyEl = document.getElementById('notifEmptyState');
+  if (!listEl) return;
+
+  let filtered = [...notificationsList];
+  if (currentNotifFilter === 'unread') {
+    filtered = filtered.filter(n => !n.is_read);
+  } else if (currentNotifFilter === 'mentions') {
+    filtered = filtered.filter(n => n.type === 'mention');
+  } else if (currentNotifFilter === 'dms') {
+    filtered = filtered.filter(n => n.type === 'dm');
+  } else if (currentNotifFilter === 'friends') {
+    filtered = filtered.filter(n => n.type && n.type.startsWith('friend'));
+  } else if (currentNotifFilter === 'system') {
+    filtered = filtered.filter(n => n.type === 'call' || n.type === 'system' || n.type === 'scheduled' || n.type === 'server' || n.type === 'feedback');
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '';
+    if (emptyEl) {
+      emptyEl.classList.remove('hidden');
+      const emptyDesc = emptyEl.querySelector('.notif-empty-desc');
+      if (emptyDesc) {
+        emptyDesc.textContent = currentNotifFilter === 'unread'
+          ? "You don't have any unread notifications."
+          : "You don't have any notifications in this filter.";
+      }
+    }
+    return;
+  }
+
+  if (emptyEl) emptyEl.classList.add('hidden');
+  listEl.innerHTML = '';
+
+  const groupsMap = new Map();
+  filtered.forEach(notif => {
+    const key = getNotificationGroupKey(notif);
+    if (!groupsMap.has(key)) {
+      groupsMap.set(key, []);
+    }
+    groupsMap.get(key).push(notif);
+  });
+
+  groupsMap.forEach((items, groupKey) => {
+    if (items.length === 1) {
+      const itemEl = createNotificationItemEl(items[0]);
+      listEl.appendChild(itemEl);
+      return;
+    }
+
+    const firstNotif = items[0];
+    const unreadCount = items.filter(n => !n.is_read).length;
+    const isExpanded = expandedNotifGroups.has(groupKey);
+    const highestPriority = items.some(n => n.priority === 'red') ? 'red' : (items.some(n => n.priority === 'green') ? 'green' : 'yellow');
+    const meta = getNotifMeta(firstNotif.type, highestPriority);
+    const groupTitle = getNotificationGroupTitle(firstNotif, items.length);
+
+    const groupCard = document.createElement('div');
+    groupCard.className = `notif-group-card ${isExpanded ? 'expanded' : ''}`;
+
+    const groupHeader = document.createElement('div');
+    groupHeader.className = `notif-group-header ${unreadCount > 0 ? 'has-unread' : ''}`;
+    groupHeader.innerHTML = `
+      <div class="notif-item-icon-box ${meta.iconClass}">${meta.icon}</div>
+      <div class="notif-item-content">
+        <div class="notif-item-top">
+          <div class="notif-item-title-group" style="display:flex;align-items:center;gap:6px;">
+            <span class="notif-item-title" style="font-weight:700;">${escapeHtml(groupTitle)}</span>
+            <span class="notif-group-count-badge">🔴 ${unreadCount > 0 ? unreadCount : items.length}</span>
+          </div>
+          <span class="notif-item-time">${escapeHtml(formatNotifTimeAgo(firstNotif.created_at))}</span>
+        </div>
+        <div class="notif-item-body" style="font-size:12px;color:var(--text-muted);">${escapeHtml(firstNotif.body || firstNotif.title)}</div>
+      </div>
+      <div class="notif-item-actions">
+        ${unreadCount > 0 ? `
+        <button type="button" class="notif-item-action-btn btn-group-read" title="Mark all in group as read">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        </button>` : ''}
+        <button type="button" class="notif-item-action-btn btn-group-del" title="Delete all in group">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </button>
+      </div>
+      <div class="notif-group-toggle-icon" title="${isExpanded ? 'Collapse' : 'Expand'}">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+      </div>
+    `;
+
+    groupHeader.addEventListener('click', (e) => {
+      if (e.target.closest('.notif-item-action-btn')) return;
+      if (expandedNotifGroups.has(groupKey)) {
+        expandedNotifGroups.delete(groupKey);
+      } else {
+        expandedNotifGroups.add(groupKey);
+      }
+      renderNotificationsList();
+    });
+
+    const readAllBtn = groupHeader.querySelector('.btn-group-read');
+    if (readAllBtn) {
+      readAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        for (const it of items) {
+          if (!it.is_read) {
+            it.is_read = 1;
+            markNotifRead(it.id);
+          }
+        }
+        renderNotificationsList();
+      });
+    }
+
+    const delAllBtn = groupHeader.querySelector('.btn-group-del');
+    if (delAllBtn) {
+      delAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        for (const it of items) {
+          deleteNotif(it.id);
+        }
+      });
+    }
+
+    groupCard.appendChild(groupHeader);
+
+    if (isExpanded) {
+      const subitemsEl = document.createElement('div');
+      subitemsEl.className = 'notif-group-subitems';
+      items.forEach(it => {
+        const itemEl = createNotificationItemEl(it);
+        subitemsEl.appendChild(itemEl);
+      });
+      groupCard.appendChild(subitemsEl);
+    }
+
+    listEl.appendChild(groupCard);
+  });
+}
+
+async function markNotifRead(id) {
+  const item = notificationsList.find(n => n.id === id);
+  if (item && !item.is_read) {
+    item.is_read = 1;
+    updateNotifBadge(unreadNotificationsCount - 1);
+    renderNotificationsList();
+  }
+  try {
+    await fetch(`/api/notifications/${id}/read`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch (err) {
+    console.error('Failed to mark notification read:', err);
+  }
+}
+
+async function markAllNotifsRead() {
+  if (notificationsList.length === 0) return;
+  notificationsList.forEach(n => { n.is_read = 1; });
+  updateNotifBadge(0);
+  renderNotificationsList();
+  try {
+    await fetch('/api/notifications/mark-all-read', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch (err) {
+    console.error('Failed to mark all notifications read:', err);
+  }
+}
+
+async function deleteNotif(id) {
+  const idx = notificationsList.findIndex(n => n.id === id);
+  if (idx !== -1) {
+    const wasUnread = !notificationsList[idx].is_read;
+    notificationsList.splice(idx, 1);
+    if (wasUnread) updateNotifBadge(unreadNotificationsCount - 1);
+    renderNotificationsList();
+  }
+  try {
+    await fetch(`/api/notifications/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch (err) {
+    console.error('Failed to delete notification:', err);
+  }
+}
+
+async function clearAllNotifs() {
+  notificationsList = [];
+  updateNotifBadge(0);
+  renderNotificationsList();
+  try {
+    await fetch('/api/notifications', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    showToast({ icon: '🗑️', title: 'Notifications Cleared', body: 'All notifications have been removed.' });
+  } catch (err) {
+    console.error('Failed to clear notifications:', err);
+  }
+}
+
+function handleNotificationClick(notif) {
+  if (!notif) return;
+  if (!notif.is_read) {
+    markNotifRead(notif.id);
+  }
+  closeNotifPanel();
+
+  let payload = notif.data;
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload); } catch { payload = {}; }
+  }
+  payload = payload || {};
+
+  if (notif.type === 'mention') {
+    const serverId = payload.serverId || payload.server_id;
+    const channelId = payload.channelId || payload.channel_id;
+    const messageId = payload.messageId || payload.message_id;
+
+    if (serverId) {
+      switchToServerView(serverId);
+    }
+    if (channelId) {
+      setTimeout(() => {
+        selectChannel(channelId);
+        if (messageId) {
+          setTimeout(() => {
+            const msgEl = document.querySelector(`.message-item[data-message-id="${messageId}"]`);
+            if (msgEl) {
+              msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              msgEl.classList.remove('message-highlight-pulse');
+              void msgEl.offsetWidth;
+              msgEl.classList.add('message-highlight-pulse');
+            }
+          }, 400);
+        }
+      }, 150);
+    }
+  } else if (notif.type === 'dm') {
+    const senderId = payload.senderId || payload.sender_id || payload.friendId || payload.friend_id;
+    if (senderId && friendsData && Array.isArray(friendsData.friends)) {
+      const friend = friendsData.friends.find(f => f.id === senderId) || {
+        id: senderId,
+        username: payload.senderUsername || 'Friend',
+        displayName: payload.senderDisplayName || payload.senderUsername || 'Friend'
+      };
+      switchToDmView(friend);
+    }
+  } else if (notif.type === 'friend_request') {
+    switchToFriendsView('pending');
+  } else if (notif.type === 'friend_accepted') {
+    switchToFriendsView('all');
+  } else if (notif.type === 'call') {
+    const callerId = payload.callerId || payload.caller_id || payload.senderId || payload.sender_id;
+    if (callerId && friendsData && Array.isArray(friendsData.friends)) {
+      const friend = friendsData.friends.find(f => f.id === callerId) || {
+        id: callerId,
+        username: payload.callerUsername || 'Friend',
+        displayName: payload.callerDisplayName || payload.callerUsername || 'Friend'
+      };
+      switchToDmView(friend);
+    }
+  } else if (notif.type === 'feedback') {
+    if (typeof openFeedbackForumModal === 'function') {
+      openFeedbackForumModal();
+    }
+  } else if (notif.type === 'scheduled') {
+    const serverId = payload.serverId || payload.server_id;
+    const channelId = payload.channelId || payload.channel_id;
+    const friendId = payload.friendId || payload.friend_id;
+    if (serverId && channelId) {
+      switchToServerView(serverId);
+      setTimeout(() => selectChannel(channelId), 150);
+    } else if (friendId && friendsData && Array.isArray(friendsData.friends)) {
+      const friend = friendsData.friends.find(f => f.id === friendId);
+      if (friend) switchToDmView(friend);
+    }
+  } else if (notif.type === 'server') {
+    const serverId = payload.serverId || payload.server_id;
+    const channelId = payload.channelId || payload.channel_id;
+    if (serverId) {
+      switchToServerView(serverId);
+      if (channelId) setTimeout(() => selectChannel(channelId), 150);
+    }
+  }
+}
+
+function handleNotificationCreatedEvent(notif) {
+  if (!notif) return;
+  const s = getNotificationSettings();
+
+  // Check category permission
+  if (notif.type === 'mention' && !s.mentions) return;
+  if (notif.type === 'dm' && !s.dms) return;
+  if ((notif.type === 'friend_request' || notif.type === 'friend_accepted') && !s.friends) return;
+  if (notif.type === 'call' && !s.calls) return;
+  if (notif.type === 'feedback' && !s.feedback) return;
+  if (notif.type === 'scheduled' && !s.scheduled) return;
+  if (notif.type === 'server' && !s.servers) return;
+
+  // Sound triggering
+  const isRed = notif.priority === 'red';
+  const shouldPlay = s.soundsEnabled || (s.urgentAlwaysAlert && isRed);
+  if (shouldPlay) {
+    playNotificationSound(notif.priority || 'yellow');
+  }
+
+  // Add to list and update badge with subtle animation
+  if (!notificationsList.some(n => n.id === notif.id)) {
+    notificationsList.unshift(notif);
+    updateNotifBadge(unreadNotificationsCount + 1, true);
+    renderNotificationsList();
+  }
+
+  // Discord-style alert toast
+  const meta = getNotifMeta(notif.type, notif.priority);
+  const grpKey = getNotificationGroupKey(notif);
+  showToast({
+    icon: meta.icon,
+    title: notif.title,
+    body: notif.body,
+    actionText: 'View',
+    groupKey: grpKey,
+    onAction: () => handleNotificationClick(notif)
+  });
+}
+
+function openNotifPanel(triggerBtn = null) {
+  const overlay = document.getElementById('notifPanelOverlay');
+  const card = document.getElementById('notifPanelCard');
+  if (!overlay) return;
+  if (triggerBtn && card) {
+    const rect = triggerBtn.getBoundingClientRect();
+    card.style.top = `${rect.bottom + 8}px`;
+    card.style.right = `${Math.max(16, window.innerWidth - rect.right - 10)}px`;
+  }
+  overlay.classList.remove('hidden');
+  loadNotifications();
+}
+
+function closeNotifPanel() {
+  const overlay = document.getElementById('notifPanelOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function toggleNotifPanel(triggerBtn = null) {
+  const overlay = document.getElementById('notifPanelOverlay');
+  if (!overlay) return;
+  if (overlay.classList.contains('hidden')) {
+    openNotifPanel(triggerBtn);
+  } else {
+    closeNotifPanel();
+  }
+}
+
+function bindNotificationCenterControls() {
+  const chatNotifBtn = document.getElementById('chatNotifBtn');
+  const friendsNotifBtn = document.getElementById('friendsNotifBtn');
+  const dmNotifBtn = document.getElementById('dmNotifBtn');
+
+  if (chatNotifBtn) chatNotifBtn.addEventListener('click', () => toggleNotifPanel(chatNotifBtn));
+  if (friendsNotifBtn) friendsNotifBtn.addEventListener('click', () => toggleNotifPanel(friendsNotifBtn));
+  if (dmNotifBtn) dmNotifBtn.addEventListener('click', () => toggleNotifPanel(dmNotifBtn));
+
+  const closeNotifPanelBtn = document.getElementById('closeNotifPanelBtn');
+  if (closeNotifPanelBtn) {
+    closeNotifPanelBtn.addEventListener('click', closeNotifPanel);
+  }
+
+  const notifPanelOverlay = document.getElementById('notifPanelOverlay');
+  if (notifPanelOverlay) {
+    notifPanelOverlay.addEventListener('click', (e) => {
+      if (e.target === notifPanelOverlay) {
+        closeNotifPanel();
+      }
+    });
+  }
+
+  const notifMarkAllReadBtn = document.getElementById('notifMarkAllReadBtn');
+  if (notifMarkAllReadBtn) {
+    notifMarkAllReadBtn.addEventListener('click', markAllNotifsRead);
+  }
+
+  const notifClearAllBtn = document.getElementById('notifClearAllBtn');
+  if (notifClearAllBtn) {
+    notifClearAllBtn.addEventListener('click', () => {
+      if (confirm('Clear all notifications?')) {
+        clearAllNotifs();
+      }
+    });
+  }
+
+  // Settings shortcut button -> open notification settings modal
+  const notifSettingsBtn = document.getElementById('notifSettingsBtn');
+  const notifSettingsModalOverlay = document.getElementById('notifSettingsModalOverlay');
+  const closeNotifSettingsModalBtn = document.getElementById('closeNotifSettingsModalBtn');
+
+  if (notifSettingsBtn) {
+    notifSettingsBtn.addEventListener('click', () => {
+      closeNotifPanel();
+      if (notifSettingsModalOverlay) {
+        notifSettingsModalOverlay.classList.remove('hidden');
+      } else {
+        openMyProfileModal('notifications');
+      }
+    });
+  }
+
+  if (closeNotifSettingsModalBtn && notifSettingsModalOverlay) {
+    closeNotifSettingsModalBtn.addEventListener('click', () => {
+      notifSettingsModalOverlay.classList.add('hidden');
+    });
+    notifSettingsModalOverlay.addEventListener('click', (e) => {
+      if (e.target === notifSettingsModalOverlay) {
+        notifSettingsModalOverlay.classList.add('hidden');
+      }
+    });
+  }
+
+  // Filter tabs
+  document.querySelectorAll('.notif-filter-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.notif-filter-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentNotifFilter = tab.getAttribute('data-filter') || 'all';
+      renderNotificationsList();
+    });
+  });
+
+  bindNotificationSettingsUI();
+}
+
+function initNotificationCenter() {
+  bindNotificationSettingsUI();
+  loadNotifications();
+}
+
+// ==========================================================================
+// STAGE 3d.6: USER STATUS SYSTEM (CLIENT LOGIC)
+// ==========================================================================
+
+let isUserAutoIdle = false;
+let userActivityTimer = null;
+let lastReportedActivityTime = 0;
+const INACTIVITY_IDLE_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+
+function getStatusBadgeClass(status) {
+  switch (status) {
+    case 'online': return 'status-online';
+    case 'idle': return 'status-idle';
+    case 'dnd': return 'status-dnd';
+    case 'invisible':
+    case 'offline':
+    default:
+      return 'status-offline';
+  }
+}
+
+function getStatusLabel(status) {
+  switch (status) {
+    case 'online': return 'Online';
+    case 'idle': return 'Idle';
+    case 'dnd': return 'Do Not Disturb';
+    case 'invisible': return 'Invisible';
+    case 'offline':
+    default:
+      return 'Offline';
+  }
+}
+
+function getStatusPillClass(status) {
+  switch (status) {
+    case 'online': return 'status-pill-online';
+    case 'idle': return 'status-pill-idle';
+    case 'dnd': return 'status-pill-dnd';
+    case 'invisible':
+    case 'offline':
+    default:
+      return 'status-pill-offline';
+  }
+}
+
+function updateCurrentUserStatusUI() {
+  if (!currentUser) return;
+  const rawStatus = currentUser.status || 'online';
+  const effectiveStatus = (isUserAutoIdle && rawStatus === 'online') ? 'idle' : rawStatus;
+  const badgeClass = getStatusBadgeClass(effectiveStatus);
+  const label = getStatusLabel(effectiveStatus);
+
+  // 1. Capsules (3 headers)
+  ['currentUserStatusBadge', 'currentUserStatusBadge2', 'currentUserStatusBadge3'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.className = `user-status-badge ${badgeClass}`;
+      el.title = label;
+    }
+  });
+
+  // Custom status in capsules
+  const custom = currentUser.customStatus;
+  const hasCustom = Boolean(custom && custom.text && custom.text.trim());
+  ['currentUserCapsuleCustomStatus', 'currentUserCapsuleCustomStatus2', 'currentUserCapsuleCustomStatus3'].forEach(id => {
+    const row = document.getElementById(id);
+    if (row) {
+      if (hasCustom) {
+        const emojiEl = row.querySelector('.capsule-status-emoji');
+        const textEl = row.querySelector('.capsule-status-text');
+        if (emojiEl) emojiEl.textContent = custom.emoji || '💬';
+        if (textEl) textEl.textContent = custom.text;
+        row.title = `${custom.emoji ? custom.emoji + ' ' : ''}${custom.text}`;
+        row.classList.remove('hidden');
+      } else {
+        row.classList.add('hidden');
+      }
+    }
+  });
+
+  // 2. Popout UI
+  const popoutAvatar = document.getElementById('statusPopoutAvatar');
+  const popoutBadge = document.getElementById('statusPopoutBadge');
+  const popoutName = document.getElementById('statusPopoutDisplayName');
+  const popoutHandle = document.getElementById('statusPopoutHandle');
+  if (popoutAvatar) renderAvatarInto(popoutAvatar, currentUser);
+  if (popoutBadge) {
+    popoutBadge.className = `user-status-badge ${badgeClass}`;
+    popoutBadge.title = label;
+  }
+  if (popoutName) popoutName.textContent = currentUser.displayName || currentUser.username;
+  if (popoutHandle) popoutHandle.textContent = `@${currentUser.username}`;
+
+  const popoutCustomEmoji = document.getElementById('statusPopoutCustomEmoji');
+  const popoutCustomText = document.getElementById('statusPopoutCustomText');
+  const popoutClearBtn = document.getElementById('statusPopoutClearCustomBtn');
+  if (popoutCustomEmoji && popoutCustomText) {
+    if (hasCustom) {
+      popoutCustomEmoji.textContent = custom.emoji || '💬';
+      popoutCustomText.textContent = custom.text;
+      if (popoutClearBtn) popoutClearBtn.classList.remove('hidden');
+    } else {
+      popoutCustomEmoji.textContent = '💭';
+      popoutCustomText.textContent = 'Set a custom status';
+      if (popoutClearBtn) popoutClearBtn.classList.add('hidden');
+    }
+  }
+
+  // Checkmarks on popout options
+  const checks = {
+    online: document.getElementById('statusCheckOnline'),
+    idle: document.getElementById('statusCheckIdle'),
+    dnd: document.getElementById('statusCheckDnd'),
+    invisible: document.getElementById('statusCheckInvisible')
+  };
+  Object.keys(checks).forEach(k => {
+    if (checks[k]) {
+      checks[k].classList.toggle('hidden', rawStatus !== k);
+    }
+  });
+
+  // 3. User Settings Profile Tab Card
+  syncSettingsProfileStatusUI();
+}
+
+function syncSettingsProfileStatusUI() {
+  if (!currentUser) return;
+  const rawStatus = currentUser.status || 'online';
+  const custom = currentUser.customStatus;
+  const hasCustom = Boolean(custom && custom.text && custom.text.trim());
+
+  document.querySelectorAll('.settings-status-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-status') === rawStatus);
+  });
+
+  const emojiDisplay = document.getElementById('settingsCustomStatusEmojiDisplay');
+  const textDisplay = document.getElementById('settingsCustomStatusTextDisplay');
+  const clearBtn = document.getElementById('settingsClearCustomStatusBtn');
+  if (emojiDisplay) emojiDisplay.textContent = hasCustom ? (custom.emoji || '💬') : '💬';
+  if (textDisplay) textDisplay.textContent = hasCustom ? custom.text : 'None set';
+  if (clearBtn) clearBtn.classList.toggle('hidden', !hasCustom);
+}
+
+// Set manual status
+async function setUserStatus(newStatus) {
+  if (!currentUser) return;
+  const valid = ['online', 'idle', 'dnd', 'invisible'];
+  if (!valid.includes(newStatus)) return;
+
+  isUserAutoIdle = false;
+  currentUser.status = newStatus;
+  updateCurrentUserStatusUI();
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    try {
+      socket.send(JSON.stringify({
+        type: 'set_status',
+        status: newStatus
+      }));
+    } catch {}
+  }
+
+  try {
+    const res = await fetch('/api/status', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ status: newStatus })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.user) {
+        currentUser.status = data.user.status;
+        currentUser.customStatus = data.user.customStatus;
+        updateCurrentUserStatusUI();
+      }
+    }
+  } catch (err) {
+    console.error('Failed to persist status change:', err);
+  }
+
+  showToast({
+    icon: '✨',
+    title: 'Status Updated',
+    body: `Your status is now ${getStatusLabel(newStatus)}.`
+  });
+}
+
+// Set custom status
+async function setCustomStatus(text, emoji, duration, durationMinutes) {
+  if (!currentUser) return;
+  const trimmed = (text || '').trim();
+  if (!trimmed) return;
+
+  try {
+    const res = await fetch('/api/status/custom', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        text: trimmed,
+        emoji: emoji || '',
+        duration: duration || 'today',
+        durationMinutes: durationMinutes ? Number(durationMinutes) : undefined
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to update custom status');
+    }
+
+    currentUser.customStatus = data.customStatus;
+    updateCurrentUserStatusUI();
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({
+          type: 'set_custom_status',
+          text: trimmed,
+          emoji: emoji || '',
+          duration: duration || 'today',
+          durationMinutes: durationMinutes ? Number(durationMinutes) : undefined
+        }));
+      } catch {}
+    }
+
+    closeCustomStatusModal();
+    showToast({
+      icon: emoji || '💬',
+      title: 'Custom Status Set',
+      body: trimmed
+    });
+  } catch (err) {
+    const errEl = document.getElementById('customStatusError');
+    if (errEl) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    }
+  }
+}
+
+// Clear custom status
+async function clearUserCustomStatus() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch('/api/status/custom', {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      currentUser.customStatus = null;
+      updateCurrentUserStatusUI();
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        try {
+          socket.send(JSON.stringify({ type: 'clear_custom_status' }));
+        } catch {}
+      }
+      closeCustomStatusModal();
+      showToast({
+        icon: '🗑️',
+        title: 'Custom Status Cleared',
+        body: 'Your custom status was removed.'
+      });
+    }
+  } catch (err) {
+    console.error('Failed to clear custom status:', err);
+  }
+}
+
+// Popout toggle
+function toggleUserStatusMenuPopout(anchorEl) {
+  const popout = document.getElementById('userStatusMenuPopout');
+  if (!popout) return;
+
+  if (!popout.classList.contains('hidden')) {
+    popout.classList.add('hidden');
+    return;
+  }
+
+  updateCurrentUserStatusUI();
+  if (anchorEl) {
+    const rect = anchorEl.getBoundingClientRect();
+    if (rect.top > 300) {
+      popout.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+      popout.style.top = 'auto';
+    } else {
+      popout.style.top = `${rect.bottom + 8}px`;
+      popout.style.bottom = 'auto';
+    }
+    popout.style.left = `${Math.max(12, rect.left)}px`;
+    popout.style.right = 'auto';
+  }
+  popout.classList.remove('hidden');
+}
+
+function closeUserStatusMenuPopout() {
+  const popout = document.getElementById('userStatusMenuPopout');
+  if (popout) popout.classList.add('hidden');
+}
+
+// Custom Status Modal
+function openCustomStatusModal() {
+  closeUserStatusMenuPopout();
+  const modal = document.getElementById('customStatusModalOverlay');
+  if (!modal) return;
+
+  const current = currentUser ? currentUser.customStatus : null;
+  const textInput = document.getElementById('customStatusTextInput');
+  const emojiDisplay = document.getElementById('customStatusSelectedEmoji');
+  const durationSelect = document.getElementById('customStatusDurationSelect');
+  const minutesGroup = document.getElementById('customStatusMinutesGroup');
+  const clearBtn = document.getElementById('modalClearCustomStatusBtn');
+  const errEl = document.getElementById('customStatusError');
+
+  if (errEl) errEl.classList.add('hidden');
+  if (textInput) textInput.value = (current && current.text) ? current.text : '';
+  if (emojiDisplay) emojiDisplay.textContent = (current && current.emoji) ? current.emoji : '💬';
+  if (durationSelect) durationSelect.value = 'today';
+  if (minutesGroup) minutesGroup.classList.add('hidden');
+  if (clearBtn) clearBtn.classList.toggle('hidden', !(current && current.text));
+
+  document.querySelectorAll('.quick-emoji-btn').forEach(btn => {
+    btn.classList.toggle('active', current && btn.getAttribute('data-emoji') === current.emoji);
+  });
+
+  modal.classList.remove('hidden');
+  if (textInput) setTimeout(() => textInput.focus(), 50);
+}
+
+function closeCustomStatusModal() {
+  const modal = document.getElementById('customStatusModalOverlay');
+  if (modal) modal.classList.add('hidden');
+}
+
+// Inactivity & Auto-Idle
+function resetInactivityTimer() {
+  if (userActivityTimer) {
+    clearTimeout(userActivityTimer);
+  }
+
+  if (isUserAutoIdle) {
+    isUserAutoIdle = false;
+    updateCurrentUserStatusUI();
+    const now = Date.now();
+    if (now - lastReportedActivityTime > 10000) {
+      lastReportedActivityTime = now;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        try { socket.send(JSON.stringify({ type: 'user_active' })); } catch {}
+      }
+      fetch('/api/status/activity', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(() => {});
+    }
+  }
+
+  userActivityTimer = setTimeout(onUserInactivityTriggered, INACTIVITY_IDLE_DELAY_MS);
+}
+
+function onUserInactivityTriggered() {
+  if (!currentUser) return;
+  if (currentUser.status === 'online') {
+    isUserAutoIdle = true;
+    updateCurrentUserStatusUI();
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try { socket.send(JSON.stringify({ type: 'user_idle' })); } catch {}
+    }
+    fetch('/api/status/idle', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).catch(() => {});
+  }
+}
+
+// Realtime Presence Broadcast handler from WebSocket
+function handlePresenceUpdatedEvent(msg) {
+  if (!msg || !msg.userId) return;
+  const { userId, status, customStatus, isSelf } = msg;
+
+  // 1. If self update
+  if (isSelf || (currentUser && currentUser.id === userId)) {
+    if (currentUser) {
+      if (status) currentUser.status = status;
+      if (customStatus !== undefined) currentUser.customStatus = customStatus;
+      updateCurrentUserStatusUI();
+    }
+    return;
+  }
+
+  // 2. Update friends cache
+  if (friendsData && Array.isArray(friendsData.friends)) {
+    const friend = friendsData.friends.find(f => f.id === userId);
+    if (friend) {
+      if (status) friend.status = status;
+      if (customStatus !== undefined) friend.customStatus = customStatus;
+      if (typeof renderFriendsUI === 'function') {
+        renderFriendsUI();
+      }
+    }
+  }
+
+  // 3. Update active DM view header
+  if (activeDmFriend && activeDmFriend.id === userId) {
+    if (status) activeDmFriend.status = status;
+    if (customStatus !== undefined) activeDmFriend.customStatus = customStatus;
+    if (dmActiveFriendUsername) {
+      let desc = `@${activeDmFriend.username}`;
+      if (customStatus && customStatus.text) {
+        desc += ` • ${(customStatus.emoji ? customStatus.emoji + ' ' : '')}${customStatus.text}`;
+      }
+      dmActiveFriendUsername.textContent = desc;
+    }
+  }
+
+  // 4. Update viewed user profile modal if currently open for this user
+  if (viewedUserProfile && viewedUserProfile.id === userId) {
+    if (status) viewedUserProfile.status = status;
+    if (customStatus !== undefined) viewedUserProfile.customStatus = customStatus;
+    const badgeEl = document.getElementById('viewUserStatusBadge');
+    if (badgeEl) {
+      badgeEl.className = `user-status-badge status-large ${getStatusBadgeClass(status)}`;
+      badgeEl.title = getStatusLabel(status);
+    }
+    const pillEl = document.getElementById('viewUserStatusPill');
+    if (pillEl) {
+      pillEl.className = `user-status-pill ${getStatusPillClass(status)}`;
+      pillEl.textContent = getStatusLabel(status);
+    }
+    const boxEl = document.getElementById('viewUserCustomStatusBox');
+    const emojiEl = document.getElementById('viewUserCustomStatusEmoji');
+    const textEl = document.getElementById('viewUserCustomStatusText');
+    if (boxEl && emojiEl && textEl) {
+      if (customStatus && customStatus.text) {
+        emojiEl.textContent = customStatus.emoji || '💬';
+        textEl.textContent = customStatus.text;
+        boxEl.classList.remove('hidden');
+      } else {
+        boxEl.classList.add('hidden');
+      }
+    }
+  }
+}
+
+function bindUserStatusSystemControls() {
+  const choices = [
+    { btn: document.getElementById('statusChoiceOnline'), status: 'online' },
+    { btn: document.getElementById('statusChoiceIdle'), status: 'idle' },
+    { btn: document.getElementById('statusChoiceDnd'), status: 'dnd' },
+    { btn: document.getElementById('statusChoiceInvisible'), status: 'invisible' }
+  ];
+  choices.forEach(({ btn, status }) => {
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeUserStatusMenuPopout();
+        setUserStatus(status);
+      });
+    }
+  });
+
+  const setCustomBtn = document.getElementById('statusPopoutSetCustomBtn');
+  if (setCustomBtn) {
+    setCustomBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCustomStatusModal();
+    });
+  }
+
+  const clearCustomBtn = document.getElementById('statusPopoutClearCustomBtn');
+  if (clearCustomBtn) {
+    clearCustomBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeUserStatusMenuPopout();
+      clearUserCustomStatus();
+    });
+  }
+
+  const openProfileBtn = document.getElementById('statusPopoutOpenProfileBtn');
+  if (openProfileBtn) {
+    openProfileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeUserStatusMenuPopout();
+      openMyProfileModal('profile');
+    });
+  }
+
+  document.querySelectorAll('.settings-status-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const st = btn.getAttribute('data-status');
+      if (st) setUserStatus(st);
+    });
+  });
+
+  const settingsOpenCustomBtn = document.getElementById('settingsOpenCustomStatusModalBtn');
+  if (settingsOpenCustomBtn) {
+    settingsOpenCustomBtn.addEventListener('click', () => openCustomStatusModal());
+  }
+
+  const settingsClearCustomBtn = document.getElementById('settingsClearCustomStatusBtn');
+  if (settingsClearCustomBtn) {
+    settingsClearCustomBtn.addEventListener('click', () => clearUserCustomStatus());
+  }
+
+  const closeCustomModalBtn = document.getElementById('closeCustomStatusModalBtn');
+  if (closeCustomModalBtn) {
+    closeCustomModalBtn.addEventListener('click', closeCustomStatusModal);
+  }
+
+  const cancelCustomModalBtn = document.getElementById('modalCancelCustomStatusBtn');
+  if (cancelCustomModalBtn) {
+    cancelCustomModalBtn.addEventListener('click', closeCustomStatusModal);
+  }
+
+  const clearModalBtn = document.getElementById('modalClearCustomStatusBtn');
+  if (clearModalBtn) {
+    clearModalBtn.addEventListener('click', clearUserCustomStatus);
+  }
+
+  const saveModalBtn = document.getElementById('modalSaveCustomStatusBtn');
+  if (saveModalBtn) {
+    saveModalBtn.addEventListener('click', () => {
+      const textInput = document.getElementById('customStatusTextInput');
+      const emojiDisplay = document.getElementById('customStatusSelectedEmoji');
+      const durationSelect = document.getElementById('customStatusDurationSelect');
+      const minutesInput = document.getElementById('customStatusMinutesInput');
+      const errEl = document.getElementById('customStatusError');
+
+      const text = textInput ? textInput.value.trim() : '';
+      if (!text) {
+        if (errEl) {
+          errEl.textContent = 'Please enter a status message.';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      const emoji = emojiDisplay ? emojiDisplay.textContent.trim() : '💬';
+      const duration = durationSelect ? durationSelect.value : 'today';
+      const durationMinutes = minutesInput ? Number(minutesInput.value) : 120;
+
+      setCustomStatus(text, emoji, duration, durationMinutes);
+    });
+  }
+
+  const textInput = document.getElementById('customStatusTextInput');
+  if (textInput) {
+    textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (saveModalBtn) saveModalBtn.click();
+      }
+    });
+  }
+
+  document.querySelectorAll('.quick-emoji-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const emoji = btn.getAttribute('data-emoji');
+      const emojiDisplay = document.getElementById('customStatusSelectedEmoji');
+      if (emojiDisplay && emoji) {
+        emojiDisplay.textContent = emoji;
+        document.querySelectorAll('.quick-emoji-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+    });
+  });
+
+  const durationSelect = document.getElementById('customStatusDurationSelect');
+  const minutesGroup = document.getElementById('customStatusMinutesGroup');
+  if (durationSelect && minutesGroup) {
+    durationSelect.addEventListener('change', () => {
+      minutesGroup.classList.toggle('hidden', durationSelect.value !== 'custom');
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    const popout = document.getElementById('userStatusMenuPopout');
+    if (!popout || popout.classList.contains('hidden')) return;
+    if (e.target.closest('#userStatusMenuPopout') || e.target.closest('.user-capsule')) return;
+    closeUserStatusMenuPopout();
+  });
+
+  const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+  activityEvents.forEach(evtName => {
+    window.addEventListener(evtName, resetInactivityTimer, { passive: true });
+  });
+  resetInactivityTimer();
+}
+
+function initUserStatusSystem() {
+  bindUserStatusSystemControls();
+  updateCurrentUserStatusUI();
+}
+
+// Global escape key handler update
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const notifOverlay = document.getElementById('notifPanelOverlay');
+    if (notifOverlay && !notifOverlay.classList.contains('hidden')) {
+      closeNotifPanel();
+    }
+    const notifSettingsModal = document.getElementById('notifSettingsModalOverlay');
+    if (notifSettingsModal && !notifSettingsModal.classList.contains('hidden')) {
+      notifSettingsModal.classList.add('hidden');
+    }
+    closeUserStatusMenuPopout();
+    closeCustomStatusModal();
+  }
+});
+
 initPromoBanner();
 bindFeedbackForumControls();
+bindNotificationCenterControls();
+bindUserStatusSystemControls();
 
 // Boot check
 checkCurrentSession();
+
 

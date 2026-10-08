@@ -433,6 +433,7 @@ const server = http.createServer(async (req, res) => {
       // ==========================================
       // FRIEND SYSTEM API ROUTES
       // ==========================================
+      // ==========================================
       // GET /api/friends
       if (req.method === 'GET' && pathname === '/api/friends') {
         const token = getTokenFromReq(req);
@@ -441,7 +442,20 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 401, { error: 'Not authenticated' });
         }
         const data = db.getFriendships(user.id);
-        return sendJson(res, 200, { success: true, ...data });
+        const friendsWithPres = data.friends.map(f => {
+          const pres = getUserPublicPresence(f.id);
+          return {
+            ...f,
+            status: pres.status,
+            customStatus: pres.customStatus
+          };
+        });
+        return sendJson(res, 200, {
+          success: true,
+          friends: friendsWithPres,
+          pendingIncoming: data.pendingIncoming,
+          pendingOutgoing: data.pendingOutgoing
+        });
       }
 
       // POST /api/friends/request
@@ -468,6 +482,20 @@ const server = http.createServer(async (req, res) => {
               fromUsername: user.username,
               fromDisplayName: user.displayName
             });
+            try {
+              const notif = db.createNotification({
+                userId: result.targetId,
+                type: 'friend_request',
+                title: `Friend request from ${user.displayName || user.username}`,
+                body: `@${user.username} sent you a friend request.`,
+                priority: 'yellow',
+                data: { senderId: user.id, senderUsername: user.username, senderDisplayName: user.displayName, senderAvatarUrl: user.avatarUrl }
+              });
+              broadcastToUsers([result.targetId], {
+                type: 'notification_created',
+                notification: notif
+              });
+            } catch (notifErr) { console.error('Error creating friend request notification:', notifErr); }
           }
 
           if (result.autoAccepted && result.friend?.id) {
@@ -477,6 +505,20 @@ const server = http.createServer(async (req, res) => {
               friendUsername: user.username,
               friendDisplayName: user.displayName
             });
+            try {
+              const notif = db.createNotification({
+                userId: result.friend.id,
+                type: 'friend_accepted',
+                title: 'Friend Request Accepted',
+                body: `${user.displayName || user.username} accepted your friend request.`,
+                priority: 'green',
+                data: { friendId: user.id, friendUsername: user.username, friendDisplayName: user.displayName, friendAvatarUrl: user.avatarUrl }
+              });
+              broadcastToUsers([result.friend.id], {
+                type: 'notification_created',
+                notification: notif
+              });
+            } catch (notifErr) { console.error('Error creating friend accepted notification:', notifErr); }
           }
 
           return sendJson(res, 200, { success: true, ...result });
@@ -505,6 +547,20 @@ const server = http.createServer(async (req, res) => {
               friendUsername: user.username,
               friendDisplayName: user.displayName
             });
+            try {
+              const notif = db.createNotification({
+                userId: result.senderId,
+                type: 'friend_accepted',
+                title: 'Friend Request Accepted',
+                body: `${user.displayName || user.username} accepted your friend request.`,
+                priority: 'green',
+                data: { friendId: user.id, friendUsername: user.username, friendDisplayName: user.displayName, friendAvatarUrl: user.avatarUrl }
+              });
+              broadcastToUsers([result.senderId], {
+                type: 'notification_created',
+                notification: notif
+              });
+            } catch (notifErr) { console.error('Error creating friend accepted notification:', notifErr); }
           }
 
           return sendJson(res, 200, { success: true, ...result });
@@ -653,6 +709,8 @@ const server = http.createServer(async (req, res) => {
         const mutualFriends = db.getMutualFriends(authUser.id, targetId);
         const mutualServers = db.getMutualServers(authUser.id, targetId);
 
+        const pres = getUserPublicPresence(targetId);
+
         return sendJson(res, 200, {
           success: true,
           user: {
@@ -661,7 +719,9 @@ const server = http.createServer(async (req, res) => {
             displayName: targetUser.displayName,
             avatarUrl: targetUser.avatarUrl,
             bio: targetUser.bio || '',
-            isDeveloper: targetUser.isDeveloper
+            isDeveloper: targetUser.isDeveloper,
+            status: pres.status,
+            customStatus: pres.customStatus
           },
           mutualFriends,
           mutualServers
@@ -843,6 +903,31 @@ const server = http.createServer(async (req, res) => {
             feedback: updatedFeedback
           });
 
+          if (updatedFeedback && updatedFeedback.userId && updatedFeedback.userId !== user.id) {
+            const statusLabels = {
+              accepted: 'Accepted 🎉',
+              considering: 'Considering 🤔',
+              denied: 'Closed / Denied ❌',
+              accepted_already_exists: 'Already Exists ✨',
+              already_exists: 'Already Exists ✨',
+              pending: 'Under Review'
+            };
+            try {
+              const notif = db.createNotification({
+                userId: updatedFeedback.userId,
+                type: 'feedback',
+                title: `Feedback Status Updated: ${statusLabels[updatedFeedback.status] || updatedFeedback.status}`,
+                body: `Your feedback #${updatedFeedback.id} status was updated to "${statusLabels[updatedFeedback.status] || updatedFeedback.status}".${updatedFeedback.devResponse ? ` Developer reply: ${updatedFeedback.devResponse}` : ''}`,
+                priority: updatedFeedback.status === 'accepted' ? 'green' : 'yellow',
+                data: { feedbackId: updatedFeedback.id, status: updatedFeedback.status }
+              });
+              broadcastToUsers([updatedFeedback.userId], {
+                type: 'notification_created',
+                notification: notif
+              });
+            } catch (notifErr) { console.error('Error creating feedback status notification:', notifErr); }
+          }
+
           return sendJson(res, 200, {
             success: true,
             feedback: updatedFeedback
@@ -880,6 +965,268 @@ const server = http.createServer(async (req, res) => {
         } catch (err) {
           return sendJson(res, 400, { error: err.message });
         }
+      }
+
+      // ==========================================
+      // USER STATUS & PRESENCE API ENDPOINTS (Stage 3d.6)
+      // ==========================================
+
+      // PATCH /api/status (Update status and/or custom status)
+      if (req.method === 'PATCH' && pathname === '/api/status') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const { status, customStatusText, customStatusEmoji, customStatusExpiresAt, updateCustomStatus } = await readJsonBody(req);
+        userAutoIdle.delete(user.id);
+
+        const updatedUser = db.updateUserStatus(user.id, {
+          status,
+          customStatusText,
+          customStatusEmoji,
+          customStatusExpiresAt,
+          updateCustomStatus: Boolean(updateCustomStatus)
+        });
+
+        broadcastUserPresence(user.id);
+
+        const presence = getUserPublicPresence(user.id);
+        return sendJson(res, 200, {
+          success: true,
+          presence: {
+            status: updatedUser.status || 'online',
+            manualStatus: updatedUser.status || 'online',
+            customStatus: presence.customStatus
+          }
+        });
+      }
+
+      // POST /api/status/custom (Set custom status with duration)
+      if (req.method === 'POST' && pathname === '/api/status/custom') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const { text, emoji, duration } = await readJsonBody(req);
+        let expiresAt = null;
+
+        if (duration === '30m') {
+          expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+        } else if (duration === '1h') {
+          expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        } else if (duration === '4h') {
+          expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+        } else if (duration === 'today') {
+          const eod = new Date();
+          eod.setHours(23, 59, 59, 999);
+          expiresAt = eod.toISOString();
+        } else if (typeof duration === 'number' && duration > 0) {
+          expiresAt = new Date(Date.now() + duration * 60 * 1000).toISOString();
+        }
+
+        const updatedUser = db.updateUserStatus(user.id, {
+          customStatusText: text || '',
+          customStatusEmoji: emoji || '',
+          customStatusExpiresAt: expiresAt,
+          updateCustomStatus: true
+        });
+
+        broadcastUserPresence(user.id);
+
+        const presence = getUserPublicPresence(user.id);
+        return sendJson(res, 200, {
+          success: true,
+          presence: {
+            status: updatedUser.status || 'online',
+            manualStatus: updatedUser.status || 'online',
+            customStatus: presence.customStatus
+          }
+        });
+      }
+
+      // DELETE /api/status/custom (Clear custom status)
+      if (req.method === 'DELETE' && pathname === '/api/status/custom') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const updatedUser = db.clearUserCustomStatus(user.id);
+        broadcastUserPresence(user.id);
+
+        return sendJson(res, 200, {
+          success: true,
+          presence: {
+            status: updatedUser.status || 'online',
+            manualStatus: updatedUser.status || 'online',
+            customStatus: null
+          }
+        });
+      }
+
+      // POST /api/status/activity (Report user activity / reset auto-idle)
+      if (req.method === 'POST' && pathname === '/api/status/activity') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        if (userAutoIdle.has(user.id)) {
+          userAutoIdle.delete(user.id);
+          broadcastUserPresence(user.id);
+        }
+
+        return sendJson(res, 200, { success: true });
+      }
+
+      // POST /api/status/idle (Report user inactive / enter auto-idle)
+      if (req.method === 'POST' && pathname === '/api/status/idle') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        if (user.status === 'online' && !userAutoIdle.has(user.id)) {
+          userAutoIdle.add(user.id);
+          broadcastUserPresence(user.id);
+        }
+
+        return sendJson(res, 200, { success: true });
+      }
+
+      // ==========================================
+      // NOTIFICATIONS API ENDPOINTS (Stage 3d.5)
+      // ==========================================
+
+      // GET /api/notifications (List notifications with optional filtering & pagination)
+      if (req.method === 'GET' && pathname === '/api/notifications') {
+        const token = getTokenFromReq(req);
+        const user = token ? db.getUserByToken(token) : null;
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const unreadOnly = urlObj.searchParams.get('unreadOnly') === 'true' || urlObj.searchParams.get('unreadOnly') === '1';
+        const type = urlObj.searchParams.get('type') || null;
+        const limit = Number(urlObj.searchParams.get('limit')) || 50;
+        const offset = Number(urlObj.searchParams.get('offset')) || 0;
+
+        const notifications = db.getUserNotifications(user.id, { unreadOnly, type, limit, offset });
+        const unreadCount = db.getUnreadNotificationCount(user.id);
+
+        return sendJson(res, 200, {
+          success: true,
+          notifications,
+          unreadCount
+        });
+      }
+
+      // PATCH /api/notifications/:id/read (Mark single notification as read)
+      const readNotifMatch = pathname.match(/^\/api\/notifications\/(\d+)\/read$/);
+      if (req.method === 'PATCH' && readNotifMatch) {
+        const token = getTokenFromReq(req);
+        const user = token ? db.getUserByToken(token) : null;
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const notifId = Number(readNotifMatch[1]);
+        const updated = db.markNotificationAsRead(notifId, user.id);
+        const unreadCount = db.getUnreadNotificationCount(user.id);
+
+        return sendJson(res, 200, {
+          success: true,
+          notification: updated,
+          unreadCount
+        });
+      }
+
+      // POST /api/notifications/mark-all-read (Mark all notifications as read)
+      if (req.method === 'POST' && pathname === '/api/notifications/mark-all-read') {
+        const token = getTokenFromReq(req);
+        const user = token ? db.getUserByToken(token) : null;
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        db.markAllNotificationsAsRead(user.id);
+        return sendJson(res, 200, {
+          success: true,
+          unreadCount: 0
+        });
+      }
+
+      // DELETE /api/notifications/:id (Delete single notification)
+      const deleteNotifMatch = pathname.match(/^\/api\/notifications\/(\d+)$/);
+      if (req.method === 'DELETE' && deleteNotifMatch) {
+        const token = getTokenFromReq(req);
+        const user = token ? db.getUserByToken(token) : null;
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const notifId = Number(deleteNotifMatch[1]);
+        db.deleteNotification(notifId, user.id);
+        const unreadCount = db.getUnreadNotificationCount(user.id);
+
+        return sendJson(res, 200, {
+          success: true,
+          id: notifId,
+          unreadCount
+        });
+      }
+
+      // DELETE /api/notifications (Clear all notifications for user)
+      if (req.method === 'DELETE' && pathname === '/api/notifications') {
+        const token = getTokenFromReq(req);
+        const user = token ? db.getUserByToken(token) : null;
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        db.clearAllNotifications(user.id);
+        return sendJson(res, 200, {
+          success: true,
+          unreadCount: 0
+        });
+      }
+
+      // POST /api/notifications (Create a custom notification)
+      if (req.method === 'POST' && pathname === '/api/notifications') {
+        const token = getTokenFromReq(req);
+        const user = token ? db.getUserByToken(token) : null;
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+
+        const { type, title, body, priority, data, targetUserId } = await readJsonBody(req);
+        const recipientId = targetUserId ? Number(targetUserId) : user.id;
+
+        const newNotif = db.createNotification({
+          userId: recipientId,
+          type: type || 'system',
+          title: title || 'Notification',
+          body: body || '',
+          priority: priority || 'yellow',
+          data: data || {}
+        });
+
+        broadcastToUsers([recipientId], {
+          type: 'notification_created',
+          notification: newNotif
+        });
+
+        return sendJson(res, 200, {
+          success: true,
+          notification: newNotif
+        });
       }
 
       return sendJson(res, 404, { error: 'API endpoint not found' });
@@ -1029,6 +1376,95 @@ function resolveAccessibleChannel(user, serverId, channelId) {
   return channel;
 }
 
+// Stage 3d.6: Presence & User Status Tracking
+const userSocketCounts = new Map();
+const userAutoIdle = new Set();
+
+function getUserPublicPresence(userId) {
+  const uId = Number(userId);
+  const u = db.getUserById(uId);
+  if (!u) return { status: 'offline', customStatus: null };
+
+  if (u.customStatusExpiresAt && new Date(u.customStatusExpiresAt).getTime() <= Date.now()) {
+    db.clearUserCustomStatus(uId);
+    u.customStatusText = '';
+    u.customStatusEmoji = '';
+    u.customStatusExpiresAt = null;
+  }
+
+  const isConnected = (userSocketCounts.get(uId) || 0) > 0;
+  const manualStatus = u.status || 'online';
+
+  let effectiveStatus = 'offline';
+  if (isConnected) {
+    if (manualStatus === 'invisible') {
+      effectiveStatus = 'offline';
+    } else if (userAutoIdle.has(uId) && manualStatus === 'online') {
+      effectiveStatus = 'idle';
+    } else {
+      effectiveStatus = manualStatus;
+    }
+  }
+
+  const customStatus = (u.customStatusText || u.customStatusEmoji) ? {
+    text: u.customStatusText || '',
+    emoji: u.customStatusEmoji || '',
+    expiresAt: u.customStatusExpiresAt || null
+  } : null;
+
+  return {
+    userId: uId,
+    status: effectiveStatus,
+    customStatus
+  };
+}
+
+function broadcastUserPresence(userId) {
+  const uId = Number(userId);
+  const u = db.getUserById(uId);
+  if (!u || !wss) return;
+
+  const publicPresence = getUserPublicPresence(uId);
+
+  const publicMsg = JSON.stringify({
+    type: 'presence_updated',
+    userId: uId,
+    status: publicPresence.status,
+    customStatus: publicPresence.customStatus
+  });
+
+  const selfMsg = JSON.stringify({
+    type: 'presence_updated',
+    userId: uId,
+    status: u.status || 'online',
+    manualStatus: u.status || 'online',
+    customStatus: publicPresence.customStatus,
+    isSelf: true
+  });
+
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client.user) {
+      if (client.user.id === uId) {
+        client.send(selfMsg);
+      } else {
+        client.send(publicMsg);
+      }
+    }
+  }
+}
+
+// Clear expired custom statuses periodically
+setInterval(() => {
+  try {
+    const expiredIds = db.clearExpiredCustomStatuses();
+    if (Array.isArray(expiredIds) && expiredIds.length > 0) {
+      expiredIds.forEach(id => broadcastUserPresence(id));
+    }
+  } catch (err) {
+    console.error('[Voiceline] Error checking expired custom statuses:', err);
+  }
+}, 30000);
+
 wss.on('connection', (ws, req) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const token = urlObj.searchParams.get('token');
@@ -1045,6 +1481,23 @@ wss.on('connection', (ws, req) => {
   ws.currentChannelId = null;
 
   console.log(`[Voiceline] @${user.username} connected`);
+
+  const currentCount = userSocketCounts.get(user.id) || 0;
+  userSocketCounts.set(user.id, currentCount + 1);
+  if (currentCount === 0) {
+    broadcastUserPresence(user.id);
+  }
+
+  // Send connecting client its own presence state
+  const selfPresence = getUserPublicPresence(user.id);
+  ws.send(JSON.stringify({
+    type: 'presence_updated',
+    userId: user.id,
+    status: user.status || 'online',
+    manualStatus: user.status || 'online',
+    customStatus: selfPresence.customStatus,
+    isSelf: true
+  }));
 
   // Only join + send history if this account is actually allowed in the requested channel
   const initialServerId = Number(urlObj.searchParams.get('serverId'));
@@ -1069,6 +1522,52 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (raw) => {
     try {
       const parsed = JSON.parse(raw.toString());
+
+      // Stage 3d.6 User Status realtime events
+      if (parsed.type === 'set_status') {
+        const valid = ['online', 'idle', 'dnd', 'invisible'];
+        if (valid.includes(parsed.status)) {
+          userAutoIdle.delete(ws.user.id);
+          db.updateUserStatus(ws.user.id, { status: parsed.status });
+          ws.user.status = parsed.status;
+          broadcastUserPresence(ws.user.id);
+        }
+        return;
+      }
+
+      if (parsed.type === 'set_custom_status') {
+        db.updateUserStatus(ws.user.id, {
+          customStatusText: parsed.text || '',
+          customStatusEmoji: parsed.emoji || '',
+          customStatusExpiresAt: parsed.expiresAt || null,
+          updateCustomStatus: true
+        });
+        broadcastUserPresence(ws.user.id);
+        return;
+      }
+
+      if (parsed.type === 'clear_custom_status') {
+        db.clearUserCustomStatus(ws.user.id);
+        broadcastUserPresence(ws.user.id);
+        return;
+      }
+
+      if (parsed.type === 'user_active') {
+        if (userAutoIdle.has(ws.user.id)) {
+          userAutoIdle.delete(ws.user.id);
+          broadcastUserPresence(ws.user.id);
+        }
+        return;
+      }
+
+      if (parsed.type === 'user_idle') {
+        const u = db.getUserById(ws.user.id);
+        if (u && (u.status || 'online') === 'online' && !userAutoIdle.has(ws.user.id)) {
+          userAutoIdle.add(ws.user.id);
+          broadcastUserPresence(ws.user.id);
+        }
+        return;
+      }
 
       // Switch active channel
       if (parsed.type === 'join_channel') {
@@ -1111,7 +1610,8 @@ wss.on('connection', (ws, req) => {
         const channelId = ws.currentChannelId;
 
         // Re-check on every send: membership may have changed since the channel was joined
-        if (!resolveAccessibleChannel(ws.user, serverId, channelId)) {
+        const channel = resolveAccessibleChannel(ws.user, serverId, channelId);
+        if (!channel) {
           ws.currentServerId = null;
           ws.currentChannelId = null;
           ws.send(JSON.stringify({
@@ -1143,6 +1643,47 @@ wss.on('connection', (ws, req) => {
           channelId: channelId,
           data: savedMessage
         });
+
+        // Mention notifications
+        if (Array.isArray(parsed.mentions) && parsed.mentions.length > 0) {
+          const srvObj = db.getServerById(serverId);
+          const serverName = srvObj ? srvObj.name : 'Server';
+          const chanName = channel ? channel.name : 'general';
+          for (const m of parsed.mentions) {
+            const uName = typeof m === 'string' ? m : (m && m.username);
+            const prio = typeof m === 'object' && m.priority ? m.priority : (parsed.pingLevel || 'yellow');
+            if (!uName) continue;
+            try {
+              const targetUser = db.getUserByUsername(uName);
+              if (targetUser && targetUser.id !== ws.user.id) {
+                const notif = db.createNotification({
+                  userId: targetUser.id,
+                  type: 'mention',
+                  title: `@${ws.user.displayName || ws.user.username} mentioned you in #${chanName}`,
+                  body: content ? content.slice(0, 250) : (file ? `Attached file: ${file.name}` : 'Mentioned you in chat'),
+                  priority: prio,
+                  data: {
+                    serverId,
+                    serverName,
+                    channelId,
+                    channelName: chanName,
+                    messageId: savedMessage.id,
+                    authorId: ws.user.id,
+                    authorUsername: ws.user.username,
+                    authorDisplayName: ws.user.displayName,
+                    authorAvatarUrl: ws.user.avatarUrl
+                  }
+                });
+                broadcastToUsers([targetUser.id], {
+                  type: 'notification_created',
+                  notification: notif
+                });
+              }
+            } catch (notifErr) {
+              console.error('Error creating mention notification:', notifErr);
+            }
+          }
+        }
       } else if (parsed.type === 'join_dm') {
         const friendId = Number(parsed.friendId);
         ws.currentDmFriendId = friendId;
@@ -1175,6 +1716,32 @@ wss.on('connection', (ws, req) => {
           receiverId: friendId,
           data: savedMessage
         });
+
+        // DM notification for recipient
+        if (friendId !== ws.user.id) {
+          try {
+            const notif = db.createNotification({
+              userId: friendId,
+              type: 'dm',
+              title: `Direct message from ${ws.user.displayName || ws.user.username}`,
+              body: content ? content.slice(0, 250) : (file ? `Sent attachment: ${file.name}` : 'New message'),
+              priority: parsed.pingLevel === 'red' ? 'red' : 'yellow',
+              data: {
+                friendId: ws.user.id,
+                friendUsername: ws.user.username,
+                friendDisplayName: ws.user.displayName,
+                friendAvatarUrl: ws.user.avatarUrl,
+                messageId: savedMessage.id
+              }
+            });
+            broadcastToUsers([friendId], {
+              type: 'notification_created',
+              notification: notif
+            });
+          } catch (notifErr) {
+            console.error('Error creating DM notification:', notifErr);
+          }
+        }
         return;
       } else if (parsed.type === 'call_user') {
         const targetUserId = Number(parsed.targetUserId);
@@ -1219,6 +1786,28 @@ wss.on('connection', (ws, req) => {
             avatarUrl: ws.user.avatarUrl
           }
         }));
+
+        try {
+          const notif = db.createNotification({
+            userId: targetUserId,
+            type: 'call',
+            title: `Incoming ${parsed.callType === 'video' ? 'Video' : 'Voice'} Call`,
+            body: `${ws.user.displayName || ws.user.username} is calling you.`,
+            priority: 'red',
+            data: {
+              callerId: ws.user.id,
+              callerUsername: ws.user.username,
+              callerDisplayName: ws.user.displayName,
+              callerAvatarUrl: ws.user.avatarUrl,
+              callId,
+              callType: parsed.callType || 'voice'
+            }
+          });
+          broadcastToUsers([targetUserId], {
+            type: 'notification_created',
+            notification: notif
+          });
+        } catch (notifErr) { console.error('Error creating call notification:', notifErr); }
 
         ws.send(JSON.stringify({
           type: 'call_outgoing',
@@ -1323,6 +1912,23 @@ wss.on('connection', (ws, req) => {
       } else if (parsed.type === 'call_end') {
         const active = activeVoiceCalls.get(ws.user.id);
         if (active) {
+          if (active.status === 'ringing' && active.role === 'caller') {
+            try {
+              const notif = db.createNotification({
+                userId: active.partnerId,
+                type: 'call',
+                title: 'Missed Call',
+                body: `Missed call from ${ws.user.displayName || ws.user.username}.`,
+                priority: 'yellow',
+                data: { callerId: ws.user.id, callerUsername: ws.user.username, callerDisplayName: ws.user.displayName, callerAvatarUrl: ws.user.avatarUrl }
+              });
+              broadcastToUsers([active.partnerId], {
+                type: 'notification_created',
+                notification: notif
+              });
+            } catch {}
+          }
+
           const partnerClient = getClientByUserId(active.partnerId);
           if (partnerClient) {
             partnerClient.send(JSON.stringify({
@@ -1356,6 +1962,17 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     console.log(`[Voiceline] Connection closed for @${ws.user?.username || 'user'}`);
+    if (ws.user) {
+      const currentCount = (userSocketCounts.get(ws.user.id) || 1) - 1;
+      if (currentCount <= 0) {
+        userSocketCounts.delete(ws.user.id);
+        userAutoIdle.delete(ws.user.id);
+        broadcastUserPresence(ws.user.id);
+      } else {
+        userSocketCounts.set(ws.user.id, currentCount);
+      }
+    }
+
     if (ws.user && activeVoiceCalls.has(ws.user.id)) {
       const active = activeVoiceCalls.get(ws.user.id);
       const partnerClient = getClientByUserId(active.partnerId);

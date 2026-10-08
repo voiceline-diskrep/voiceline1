@@ -223,6 +223,32 @@ try {
   `);
 } catch {}
 
+// Stage 3d.6: User Status & Custom Status
+try { db.exec(`ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'online';`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN custom_status_text TEXT DEFAULT '';`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN custom_status_emoji TEXT DEFAULT '';`); } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN custom_status_expires_at TEXT DEFAULT NULL;`); } catch {}
+
+// Stage 3d.5: Notifications Center System
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      priority TEXT DEFAULT 'yellow',
+      data TEXT DEFAULT '{}',
+      is_read INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
+  `);
+} catch {}
+
 // Password Security Helpers
 function generateSalt() {
   return crypto.randomBytes(16).toString('hex');
@@ -265,7 +291,11 @@ function getUserByUsername(username) {
 
 const getUserByIdStmt = db.prepare(`
   SELECT id, username, display_name, avatar_url, bio, is_developer, created_at,
-         COALESCE(is_deleted, 0) AS is_deleted, deleted_at
+         COALESCE(is_deleted, 0) AS is_deleted, deleted_at,
+         COALESCE(status, 'online') AS status,
+         COALESCE(custom_status_text, '') AS custom_status_text,
+         COALESCE(custom_status_emoji, '') AS custom_status_emoji,
+         custom_status_expires_at
   FROM users
   WHERE id = ?
 `);
@@ -283,7 +313,16 @@ function getUserById(id) {
     isDeveloper: Boolean(row.is_developer),
     createdAt: row.created_at,
     isDeleted: Boolean(row.is_deleted),
-    deletedAt: row.deleted_at || null
+    deletedAt: row.deleted_at || null,
+    status: row.status || 'online',
+    customStatusText: row.custom_status_text || '',
+    customStatusEmoji: row.custom_status_emoji || '',
+    customStatusExpiresAt: row.custom_status_expires_at || null,
+    customStatus: row.custom_status_text ? {
+      text: row.custom_status_text,
+      emoji: row.custom_status_emoji || '',
+      expiresAt: row.custom_status_expires_at || null
+    } : null
   };
 }
 
@@ -356,14 +395,7 @@ function authenticateUser(username, password) {
     return null;
   }
 
-  return {
-    id: user.id,
-    username: user.username,
-    displayName: user.display_name,
-    avatarUrl: user.avatarUrl || null,
-    bio: user.bio || '',
-    isDeveloper: Boolean(user.is_developer)
-  };
+  return getUserById(user.id);
 }
 
 // Admin User Operations
@@ -459,7 +491,11 @@ const insertSessionStmt = db.prepare(`
 
 const getUserByTokenStmt = db.prepare(`
   SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio, u.is_developer,
-         COALESCE(u.is_deleted, 0) AS is_deleted
+         COALESCE(u.is_deleted, 0) AS is_deleted,
+         COALESCE(u.status, 'online') AS status,
+         COALESCE(u.custom_status_text, '') AS custom_status_text,
+         COALESCE(u.custom_status_emoji, '') AS custom_status_emoji,
+         u.custom_status_expires_at
   FROM sessions s
   JOIN users u ON s.user_id = u.id
   WHERE s.token = ?
@@ -485,7 +521,16 @@ function getUserByToken(token) {
     displayName: row.display_name,
     avatarUrl: row.avatar_url || null,
     bio: row.bio || '',
-    isDeveloper: Boolean(row.is_developer)
+    isDeveloper: Boolean(row.is_developer),
+    status: row.status || 'online',
+    customStatusText: row.custom_status_text || '',
+    customStatusEmoji: row.custom_status_emoji || '',
+    customStatusExpiresAt: row.custom_status_expires_at || null,
+    customStatus: row.custom_status_text ? {
+      text: row.custom_status_text,
+      emoji: row.custom_status_emoji || '',
+      expiresAt: row.custom_status_expires_at || null
+    } : null
   };
 }
 
@@ -848,7 +893,11 @@ const getAcceptedFriendsStmt = db.prepare(`
     CASE WHEN f.sender_id = ? THEN u2.username ELSE u1.username END AS username,
     CASE WHEN f.sender_id = ? THEN u2.display_name ELSE u1.display_name END AS displayName,
     CASE WHEN f.sender_id = ? THEN u2.avatar_url ELSE u1.avatar_url END AS avatarUrl,
-    CASE WHEN f.sender_id = ? THEN u2.is_developer ELSE u1.is_developer END AS isDeveloper
+    CASE WHEN f.sender_id = ? THEN u2.is_developer ELSE u1.is_developer END AS isDeveloper,
+    CASE WHEN f.sender_id = ? THEN COALESCE(u2.status, 'online') ELSE COALESCE(u1.status, 'online') END AS status,
+    CASE WHEN f.sender_id = ? THEN COALESCE(u2.custom_status_text, '') ELSE COALESCE(u1.custom_status_text, '') END AS customStatusText,
+    CASE WHEN f.sender_id = ? THEN COALESCE(u2.custom_status_emoji, '') ELSE COALESCE(u1.custom_status_emoji, '') END AS customStatusEmoji,
+    CASE WHEN f.sender_id = ? THEN u2.custom_status_expires_at ELSE u1.custom_status_expires_at END AS customStatusExpiresAt
   FROM friendships f
   JOIN users u1 ON f.sender_id = u1.id
   JOIN users u2 ON f.receiver_id = u2.id
@@ -864,7 +913,11 @@ const getPendingIncomingStmt = db.prepare(`
     u.username,
     u.display_name AS displayName,
     u.avatar_url AS avatarUrl,
-    u.is_developer AS isDeveloper
+    u.is_developer AS isDeveloper,
+    COALESCE(u.status, 'online') AS status,
+    COALESCE(u.custom_status_text, '') AS customStatusText,
+    COALESCE(u.custom_status_emoji, '') AS customStatusEmoji,
+    u.custom_status_expires_at AS customStatusExpiresAt
   FROM friendships f
   JOIN users u ON f.sender_id = u.id
   WHERE f.receiver_id = ? AND f.status = 'pending'
@@ -879,7 +932,11 @@ const getPendingOutgoingStmt = db.prepare(`
     u.username,
     u.display_name AS displayName,
     u.avatar_url AS avatarUrl,
-    u.is_developer AS isDeveloper
+    u.is_developer AS isDeveloper,
+    COALESCE(u.status, 'online') AS status,
+    COALESCE(u.custom_status_text, '') AS customStatusText,
+    COALESCE(u.custom_status_emoji, '') AS customStatusEmoji,
+    u.custom_status_expires_at AS customStatusExpiresAt
   FROM friendships f
   JOIN users u ON f.receiver_id = u.id
   WHERE f.sender_id = ? AND f.status = 'pending'
@@ -888,20 +945,38 @@ const getPendingOutgoingStmt = db.prepare(`
 
 function getFriendships(userId) {
   const uId = Number(userId);
-  const friends = getAcceptedFriendsStmt.all(uId, uId, uId, uId, uId, uId, uId).map(f => ({
+  const friends = getAcceptedFriendsStmt.all(uId, uId, uId, uId, uId, uId, uId, uId, uId, uId, uId).map(f => ({
     ...f,
     avatarUrl: f.avatarUrl || null,
-    isDeveloper: Boolean(f.isDeveloper)
+    isDeveloper: Boolean(f.isDeveloper),
+    status: f.status || 'online',
+    customStatus: (f.customStatusText || f.customStatusEmoji) ? {
+      text: f.customStatusText || '',
+      emoji: f.customStatusEmoji || '',
+      expiresAt: f.customStatusExpiresAt || null
+    } : null
   }));
   const pendingIncoming = getPendingIncomingStmt.all(uId).map(f => ({
     ...f,
     avatarUrl: f.avatarUrl || null,
-    isDeveloper: Boolean(f.isDeveloper)
+    isDeveloper: Boolean(f.isDeveloper),
+    status: f.status || 'online',
+    customStatus: (f.customStatusText || f.customStatusEmoji) ? {
+      text: f.customStatusText || '',
+      emoji: f.customStatusEmoji || '',
+      expiresAt: f.customStatusExpiresAt || null
+    } : null
   }));
   const pendingOutgoing = getPendingOutgoingStmt.all(uId).map(f => ({
     ...f,
     avatarUrl: f.avatarUrl || null,
-    isDeveloper: Boolean(f.isDeveloper)
+    isDeveloper: Boolean(f.isDeveloper),
+    status: f.status || 'online',
+    customStatus: (f.customStatusText || f.customStatusEmoji) ? {
+      text: f.customStatusText || '',
+      emoji: f.customStatusEmoji || '',
+      expiresAt: f.customStatusExpiresAt || null
+    } : null
   }));
 
   return {
@@ -1306,6 +1381,288 @@ function hasUserSubmittedFeedback(userId) {
   return Boolean(row && row.count > 0);
 }
 
+function getServerMembers(serverId) {
+  const sId = Number(serverId);
+  const rows = db.prepare(`
+    SELECT u.id, u.username, u.display_name AS displayName, u.avatar_url AS avatarUrl,
+           u.is_developer AS isDeveloper, sm.role AS role, sm.joined_at AS joinedAt,
+           s.created_by AS ownerId,
+           COALESCE(u.status, 'online') AS status,
+           COALESCE(u.custom_status_text, '') AS customStatusText,
+           COALESCE(u.custom_status_emoji, '') AS customStatusEmoji,
+           u.custom_status_expires_at AS customStatusExpiresAt
+    FROM server_members sm
+    JOIN users u ON sm.user_id = u.id
+    JOIN servers s ON sm.server_id = s.id
+    WHERE sm.server_id = ? AND u.is_deleted = 0
+    ORDER BY 
+      CASE WHEN u.id = s.created_by THEN 0 WHEN sm.role = 'admin' THEN 1 ELSE 2 END ASC,
+      u.display_name ASC
+  `).all(sId);
+  return rows.map(r => ({
+    id: r.id,
+    username: r.username,
+    displayName: r.displayName,
+    avatarUrl: r.avatarUrl,
+    isDeveloper: Boolean(r.isDeveloper),
+    role: (r.id === r.ownerId || r.role === 'admin') ? 'admin' : 'member',
+    isOwner: r.id === r.ownerId,
+    status: r.status || 'online',
+    customStatus: (r.customStatusText || r.customStatusEmoji) ? {
+      text: r.customStatusText || '',
+      emoji: r.customStatusEmoji || '',
+      expiresAt: r.customStatusExpiresAt || null
+    } : null
+  }));
+}
+
+// ==========================================
+// NOTIFICATIONS SYSTEM
+// ==========================================
+const insertNotificationStmt = db.prepare(`
+  INSERT INTO notifications (user_id, type, title, body, priority, data, is_read, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+`);
+
+const getNotificationByIdStmt = db.prepare(`
+  SELECT id, user_id AS userId, type, title, body, priority, data, is_read AS isRead, created_at AS createdAt
+  FROM notifications
+  WHERE id = ?
+`);
+
+function getNotificationById(id) {
+  const row = getNotificationByIdStmt.get(Number(id));
+  if (!row) return null;
+  let parsedData = {};
+  try { parsedData = JSON.parse(row.data || '{}'); } catch {}
+  return {
+    ...row,
+    isRead: Boolean(row.isRead),
+    is_read: row.isRead ? 1 : 0,
+    createdAt: row.createdAt,
+    created_at: row.createdAt,
+    data: parsedData
+  };
+}
+
+function createNotification({ userId, type, title, body, priority = 'yellow', data = {} }) {
+  const cleanType = String(type || 'system').trim();
+  const cleanTitle = String(title || 'Notification').trim().slice(0, 150);
+  const cleanBody = String(body || '').trim().slice(0, 500);
+  const cleanPriority = ['urgent', 'red'].includes(priority) ? 'red' : (['low', 'green'].includes(priority) ? 'green' : 'yellow');
+  const now = new Date().toISOString();
+  const dataStr = typeof data === 'string' ? data : JSON.stringify(data || {});
+
+  const res = insertNotificationStmt.run(
+    Number(userId),
+    cleanType,
+    cleanTitle,
+    cleanBody,
+    cleanPriority,
+    dataStr,
+    now
+  );
+
+  return getNotificationById(Number(res.lastInsertRowid));
+}
+
+function getUserNotifications(userId, { unreadOnly = false, type = null, limit = 50, offset = 0 } = {}) {
+  let query = `
+    SELECT id, user_id AS userId, type, title, body, priority, data, is_read AS isRead, created_at AS createdAt
+    FROM notifications
+    WHERE user_id = ?
+  `;
+  const params = [Number(userId)];
+
+  if (unreadOnly) {
+    query += ` AND is_read = 0`;
+  }
+  if (type && type !== 'all') {
+    if (type === 'mentions' || type === 'mention') {
+      query += ` AND type = 'mention'`;
+    } else if (type === 'dms' || type === 'dm') {
+      query += ` AND type = 'dm'`;
+    } else if (type === 'friends' || type === 'friend') {
+      query += ` AND type IN ('friend_request', 'friend_accepted')`;
+    } else if (type === 'calls' || type === 'call') {
+      query += ` AND type = 'call'`;
+    } else if (type === 'system') {
+      query += ` AND type IN ('system', 'server', 'scheduled')`;
+    } else {
+      query += ` AND type = ?`;
+      params.push(type);
+    }
+  }
+
+  query += ` ORDER BY id DESC LIMIT ? OFFSET ?`;
+  params.push(Math.min(Math.max(Number(limit) || 50, 1), 100));
+  params.push(Math.max(Number(offset) || 0, 0));
+
+  const rows = db.prepare(query).all(...params);
+  return rows.map(r => {
+    let parsedData = {};
+    try { parsedData = JSON.parse(r.data || '{}'); } catch {}
+    return {
+      ...r,
+      isRead: Boolean(r.isRead),
+      is_read: r.isRead ? 1 : 0,
+      createdAt: r.createdAt,
+      created_at: r.createdAt,
+      data: parsedData
+    };
+  });
+}
+
+const getUnreadNotificationCountStmt = db.prepare(`
+  SELECT COUNT(*) AS count
+  FROM notifications
+  WHERE user_id = ? AND is_read = 0
+`);
+
+function getUnreadNotificationCount(userId) {
+  const row = getUnreadNotificationCountStmt.get(Number(userId));
+  return row ? row.count : 0;
+}
+
+const markNotificationAsReadStmt = db.prepare(`
+  UPDATE notifications
+  SET is_read = 1
+  WHERE id = ? AND user_id = ?
+`);
+
+function markNotificationAsRead(id, userId) {
+  markNotificationAsReadStmt.run(Number(id), Number(userId));
+  return getNotificationById(id);
+}
+
+const markAllNotificationsAsReadStmt = db.prepare(`
+  UPDATE notifications
+  SET is_read = 1
+  WHERE user_id = ? AND is_read = 0
+`);
+
+function markAllNotificationsAsRead(userId) {
+  markAllNotificationsAsReadStmt.run(Number(userId));
+  return true;
+}
+
+const deleteNotificationStmt = db.prepare(`
+  DELETE FROM notifications
+  WHERE id = ? AND user_id = ?
+`);
+
+function deleteNotification(id, userId) {
+  deleteNotificationStmt.run(Number(id), Number(userId));
+  return true;
+}
+
+const clearAllNotificationsStmt = db.prepare(`
+  DELETE FROM notifications
+  WHERE user_id = ?
+`);
+
+function clearAllNotifications(userId) {
+  clearAllNotificationsStmt.run(Number(userId));
+  return true;
+}
+
+function updateUserStatus(userId, opts = {}) {
+  const uId = Number(userId);
+  let status = null;
+  let customStatusText = '';
+  let customStatusEmoji = '';
+  let customStatusExpiresAt = null;
+  let updateCustomStatus = false;
+
+  if (typeof opts === 'string') {
+    status = opts;
+    if (arguments[2] && typeof arguments[2] === 'object') {
+      const extra = arguments[2];
+      customStatusText = extra.text !== undefined ? extra.text : extra.customStatusText;
+      customStatusEmoji = extra.emoji !== undefined ? extra.emoji : extra.customStatusEmoji;
+      customStatusExpiresAt = extra.expiresAt !== undefined ? extra.expiresAt : extra.customStatusExpiresAt;
+      updateCustomStatus = true;
+    }
+  } else if (opts && typeof opts === 'object') {
+    status = opts.status;
+    customStatusText = opts.customStatusText !== undefined ? opts.customStatusText : opts.text;
+    customStatusEmoji = opts.customStatusEmoji !== undefined ? opts.customStatusEmoji : opts.emoji;
+    customStatusExpiresAt = opts.customStatusExpiresAt !== undefined ? opts.customStatusExpiresAt : opts.expiresAt;
+    updateCustomStatus = Boolean(opts.updateCustomStatus || opts.text !== undefined || opts.customStatusText !== undefined);
+  }
+
+  const validStatuses = ['online', 'idle', 'dnd', 'invisible'];
+  const cleanStatus = (status && validStatuses.includes(status)) ? status : null;
+
+  if (cleanStatus && updateCustomStatus) {
+    const cleanText = customStatusText !== undefined ? String(customStatusText || '').trim().slice(0, 128) : '';
+    const cleanEmoji = customStatusEmoji !== undefined ? String(customStatusEmoji || '').trim().slice(0, 16) : '';
+    const cleanExpires = customStatusExpiresAt ? new Date(customStatusExpiresAt).toISOString() : null;
+    db.prepare(`
+      UPDATE users
+      SET status = ?,
+          custom_status_text = ?,
+          custom_status_emoji = ?,
+          custom_status_expires_at = ?
+      WHERE id = ?
+    `).run(cleanStatus, cleanText, cleanEmoji, cleanExpires, uId);
+  } else if (cleanStatus) {
+    db.prepare(`
+      UPDATE users
+      SET status = ?
+      WHERE id = ?
+    `).run(cleanStatus, uId);
+  } else if (updateCustomStatus) {
+    const cleanText = customStatusText !== undefined ? String(customStatusText || '').trim().slice(0, 128) : '';
+    const cleanEmoji = customStatusEmoji !== undefined ? String(customStatusEmoji || '').trim().slice(0, 16) : '';
+    const cleanExpires = customStatusExpiresAt ? new Date(customStatusExpiresAt).toISOString() : null;
+    db.prepare(`
+      UPDATE users
+      SET custom_status_text = ?,
+          custom_status_emoji = ?,
+          custom_status_expires_at = ?
+      WHERE id = ?
+    `).run(cleanText, cleanEmoji, cleanExpires, uId);
+  }
+
+  return getUserById(uId);
+}
+
+function clearUserCustomStatus(userId) {
+  const uId = Number(userId);
+  db.prepare(`
+    UPDATE users
+    SET custom_status_text = '',
+        custom_status_emoji = '',
+        custom_status_expires_at = NULL
+    WHERE id = ?
+  `).run(uId);
+  return getUserById(uId);
+}
+
+function clearExpiredCustomStatuses() {
+  try {
+    const now = new Date().toISOString();
+    const rows = db.prepare(`
+      SELECT id FROM users
+      WHERE custom_status_expires_at IS NOT NULL AND custom_status_expires_at <= ?
+    `).all(now);
+    if (rows.length > 0) {
+      db.prepare(`
+        UPDATE users
+        SET custom_status_text = '',
+            custom_status_emoji = '',
+            custom_status_expires_at = NULL
+        WHERE custom_status_expires_at IS NOT NULL AND custom_status_expires_at <= ?
+      `).run(now);
+      return rows.map(r => r.id);
+    }
+  } catch (err) {
+    console.error('Error clearing expired custom statuses:', err);
+  }
+  return [];
+}
+
 module.exports = {
   createUser,
   authenticateUser,
@@ -1339,6 +1696,7 @@ module.exports = {
   getDirectMessagesHistory,
   getMutualFriends,
   getMutualServers,
+  getServerMembers,
   saveMessage,
   getRecentMessages,
   getStorageStats,
@@ -1350,5 +1708,16 @@ module.exports = {
   getAllFeedback,
   updateFeedbackStatus,
   deleteFeedback,
-  hasUserSubmittedFeedback
+  hasUserSubmittedFeedback,
+  createNotification,
+  getNotificationById,
+  getUserNotifications,
+  getUnreadNotificationCount,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  deleteNotification,
+  clearAllNotifications,
+  updateUserStatus,
+  clearUserCustomStatus,
+  clearExpiredCustomStatuses
 };
