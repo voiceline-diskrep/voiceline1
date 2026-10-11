@@ -2009,7 +2009,7 @@ function renderChannelList() {
 
           let avatarContent = (p.displayName || p.username || 'U')[0].toUpperCase();
           if (p.avatarUrl) {
-            avatarContent = `<img src="${p.avatarUrl}" alt="${escapeHtml(p.username)}" />`;
+            avatarContent = `<img src="${resolveAssetUrl(p.avatarUrl)}" alt="${escapeHtml(p.username)}" />`;
           }
 
           let badgesHtml = '';
@@ -2045,10 +2045,21 @@ function renderChannelList() {
 function switchToTextChannel(channelId) {
   isViewingVoiceStage = false;
   if (voiceStageLayout) voiceStageLayout.classList.add('hidden');
+
+  const chatHeader = document.querySelector('#chatLayout .chat-header');
+  if (chatHeader) chatHeader.classList.remove('hidden');
+  const chatBodyContainer = document.getElementById('chatBodyContainer');
+  if (chatBodyContainer) chatBodyContainer.classList.remove('hidden');
+
   messagesContainer.classList.remove('hidden');
   const chatFooter = document.querySelector('.chat-footer');
   if (chatFooter) chatFooter.classList.remove('hidden');
-  selectChannel(channelId);
+
+  if (channelId) {
+    selectChannel(channelId);
+  } else {
+    renderChannelList();
+  }
 }
 
 async function handleVoiceChannelClick(channelId, channelName) {
@@ -2061,9 +2072,13 @@ async function handleVoiceChannelClick(channelId, channelName) {
 
 function openVoiceStageView() {
   isViewingVoiceStage = true;
-  messagesContainer.classList.add('hidden');
-  const chatFooter = document.querySelector('.chat-footer');
-  if (chatFooter) chatFooter.classList.add('hidden');
+
+  // Hide the server text chat header and message body container completely so voice stage owns the full screen
+  const chatHeader = document.querySelector('#chatLayout .chat-header');
+  if (chatHeader) chatHeader.classList.add('hidden');
+  const chatBodyContainer = document.getElementById('chatBodyContainer');
+  if (chatBodyContainer) chatBodyContainer.classList.add('hidden');
+
   if (voiceStageLayout) {
     voiceStageLayout.classList.remove('hidden');
     if (voiceStageChannelName) voiceStageChannelName.textContent = serverVoiceState.channelName || 'Lounge';
@@ -2075,6 +2090,19 @@ function openVoiceStageView() {
 
 function selectChannel(channelId) {
   activeChannelId = Number(channelId);
+
+  // If returning from Voice Stage view, restore normal chat view
+  if (isViewingVoiceStage) {
+    isViewingVoiceStage = false;
+    if (voiceStageLayout) voiceStageLayout.classList.add('hidden');
+    const chatHeader = document.querySelector('#chatLayout .chat-header');
+    if (chatHeader) chatHeader.classList.remove('hidden');
+    const chatBodyContainer = document.getElementById('chatBodyContainer');
+    if (chatBodyContainer) chatBodyContainer.classList.remove('hidden');
+    messagesContainer.classList.remove('hidden');
+    const chatFooter = document.querySelector('.chat-footer');
+    if (chatFooter) chatFooter.classList.remove('hidden');
+  }
 
   document.querySelectorAll('.channel-item').forEach(el => {
     el.classList.toggle('active', Number(el.getAttribute('data-id')) === activeChannelId && !isViewingVoiceStage);
@@ -4617,6 +4645,22 @@ async function joinServerVoiceChannel(channelId, channelName) {
   serverVoiceState.isVideo = false;
   serverVoiceState.isScreenShare = false;
 
+  // Optimistically register current user so the stage card renders immediately
+  if (currentUser) {
+    serverVoiceState.participants = [{
+      userId: currentUser.id,
+      username: currentUser.username,
+      displayName: currentUser.displayName,
+      avatarUrl: currentUser.avatarUrl,
+      isMuted: false,
+      isDeafened: false,
+      isVideo: false,
+      isScreenShare: false,
+      joinedAt: new Date().toISOString()
+    }];
+    serverVoiceStates[channelId] = serverVoiceState.participants;
+  }
+
   setupVoiceSpeakingDetector();
   playCallChime('connect');
 
@@ -5012,14 +5056,10 @@ function leaveServerVoiceChannel(shouldSend = true) {
 
   // If viewing voice stage, return to active text channel
   if (isViewingVoiceStage) {
-    isViewingVoiceStage = false;
-    if (voiceStageLayout) voiceStageLayout.classList.add('hidden');
-    messagesContainer.classList.remove('hidden');
-    const chatFooter = document.querySelector('.chat-footer');
-    if (chatFooter) chatFooter.classList.remove('hidden');
+    switchToTextChannel(activeChannelId);
+  } else {
+    renderChannelList();
   }
-
-  renderChannelList();
 }
 
 function updateServerVoiceDockUI() {
@@ -5123,19 +5163,27 @@ function renderVoiceStageGrid() {
   if (!voiceStageGrid) return;
   voiceStageGrid.innerHTML = '';
 
+  const participants = serverVoiceState.participants || [];
   if (voiceStageCount) {
-    voiceStageCount.textContent = `${serverVoiceState.participants.length} Connected`;
+    voiceStageCount.textContent = `${participants.length} Connected`;
   }
 
-  serverVoiceState.participants.forEach(p => {
-    const card = document.createElement('div');
+  participants.forEach(p => {
     const isSpeaking = serverVoiceState.speakingUsers.has(p.userId);
-    card.className = 'voice-stage-card' + (isSpeaking ? ' speaking' : '');
+    const isLocal = currentUser && p.userId === currentUser.id;
+    const localVideoActive = isLocal && Boolean(serverVoiceState.screenStream || serverVoiceState.cameraStream);
+    const remoteVideoActive = !isLocal && Boolean(serverVoiceState.remoteStreams.get(p.userId)?.getVideoTracks().length > 0);
+    const hasVideo = localVideoActive || remoteVideoActive;
+
+    const card = document.createElement('div');
+    card.className = 'voice-stage-card' + (isSpeaking ? ' speaking' : '') + (hasVideo ? ' has-video' : '');
     card.setAttribute('data-user-id', p.userId);
 
-    let avatarContent = (p.displayName || p.username || 'U')[0].toUpperCase();
+    const displayName = p.displayName || p.username || 'User';
+    const initial = displayName.charAt(0) ? displayName.charAt(0).toUpperCase() : 'U';
+    let avatarContent = initial;
     if (p.avatarUrl) {
-      avatarContent = `<img src="${p.avatarUrl}" alt="${escapeHtml(p.username)}" />`;
+      avatarContent = `<img src="${resolveAssetUrl(p.avatarUrl)}" alt="${escapeHtml(displayName)}" />`;
     }
 
     let badgeIcons = '';
@@ -5149,34 +5197,29 @@ function renderVoiceStageGrid() {
     card.innerHTML = `
       <div class="voice-card-avatar">${avatarContent}</div>
       <div class="voice-card-meta">
-        <span class="voice-card-name">${escapeHtml(p.displayName || p.username)}</span>
+        <span class="voice-card-name">${escapeHtml(displayName)}</span>
         <div class="voice-card-icons">${badgeIcons}</div>
       </div>
     `;
 
-    // If this is local user and camera or screenshare is active, attach local video
-    if (currentUser && p.userId === currentUser.id) {
+    // Attach video stream if active
+    if (localVideoActive) {
       const activeStream = serverVoiceState.screenStream || serverVoiceState.cameraStream;
-      if (activeStream) {
-        const video = document.createElement('video');
-        video.className = 'voice-card-video';
-        video.autoplay = true;
-        video.muted = true;
-        video.playsInline = true;
-        video.srcObject = activeStream;
-        card.insertBefore(video, card.firstChild);
-      }
-    } else {
-      // Remote user video stream
+      const video = document.createElement('video');
+      video.className = 'voice-card-video';
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = activeStream;
+      card.insertBefore(video, card.firstChild);
+    } else if (remoteVideoActive) {
       const remoteStream = serverVoiceState.remoteStreams.get(p.userId);
-      if (remoteStream && remoteStream.getVideoTracks().length > 0) {
-        const video = document.createElement('video');
-        video.className = 'voice-card-video';
-        video.autoplay = true;
-        video.playsInline = true;
-        video.srcObject = remoteStream;
-        card.insertBefore(video, card.firstChild);
-      }
+      const video = document.createElement('video');
+      video.className = 'voice-card-video';
+      video.autoplay = true;
+      video.playsInline = true;
+      video.srcObject = remoteStream;
+      card.insertBefore(video, card.firstChild);
     }
 
     voiceStageGrid.appendChild(card);
@@ -5362,12 +5405,7 @@ if (voiceStageDisconnectBtn) voiceStageDisconnectBtn.addEventListener('click', (
 if (serverVoiceOpenStageBtn) serverVoiceOpenStageBtn.addEventListener('click', openVoiceStageView);
 if (voiceStageToggleChatBtn) {
   voiceStageToggleChatBtn.addEventListener('click', () => {
-    isViewingVoiceStage = false;
-    if (voiceStageLayout) voiceStageLayout.classList.add('hidden');
-    messagesContainer.classList.remove('hidden');
-    const chatFooter = document.querySelector('.chat-footer');
-    if (chatFooter) chatFooter.classList.remove('hidden');
-    renderChannelList();
+    switchToTextChannel(activeChannelId);
   });
 }
 
