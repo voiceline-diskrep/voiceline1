@@ -26,7 +26,7 @@
 <body>
 
   <!-- Authentication Modal (Sign-Up / Log-In) -->
-  <div class="auth-overlay" id="authOverlay">
+  <div class="auth-overlay hidden" id="authOverlay">
     <div class="auth-card">
       <div class="auth-header">
         <div class="auth-logo">Voiceline</div>
@@ -93,6 +93,69 @@
         <div class="auth-error" id="signupError"></div>
         <button type="submit" class="primary-btn" id="signupSubmitBtn">Create Account</button>
       </form>
+
+      <div class="auth-footer-help">
+        <button type="button" class="auth-link-btn" id="authOfflineSwitchBtn">Server offline or connection issue? Click here</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dedicated Server Offline / Reconnect Screen -->
+  <div class="auth-overlay hidden" id="serverOfflineOverlay">
+    <div class="auth-card server-offline-card">
+      <div class="auth-header">
+        <div class="offline-icon-wrapper">
+          <svg class="offline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="1" y1="1" x2="23" y2="23"></line>
+            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+            <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+            <line x1="12" y1="20" x2="12.01" y2="20"></line>
+          </svg>
+        </div>
+        <div class="auth-logo">Voiceline</div>
+        <h2 class="offline-title">Unable to Connect</h2>
+        <p class="auth-tagline" id="offlineStatusSubtitle">The host server is offline or the link has changed.</p>
+      </div>
+
+      <!-- Current Server Info Box -->
+      <div class="offline-info-box">
+        <span class="offline-info-label">Active Link:</span>
+        <code class="offline-info-url" id="offlineCurrentServerDisplay">None</code>
+      </div>
+
+      <!-- Status / Feedback Message -->
+      <div class="offline-status-msg" id="offlineStatusMsg">Waiting for connection...</div>
+
+      <!-- Main Action: Check Connection Again -->
+      <div class="offline-actions">
+        <button type="button" class="primary-btn offline-check-btn" id="offlineCheckAgainBtn">
+          <svg class="btn-spin-icon hidden" id="offlineCheckSpinIcon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+          </svg>
+          <span id="offlineCheckBtnText">Check Connection Again (Checks GitHub)</span>
+        </button>
+      </div>
+
+      <!-- Emergency Divider & Manual Section -->
+      <div class="offline-divider">
+        <span>EMERGENCY LINK OVERRIDE</span>
+      </div>
+
+      <div class="offline-emergency-box">
+        <label for="offlineManualUrlInput" class="offline-manual-label">
+          Paste server link manually:
+          <span class="label-hint">(from host / Discord)</span>
+        </label>
+        <div class="offline-manual-input-group">
+          <input type="text" id="offlineManualUrlInput" placeholder="https://....trycloudflare.com" autocomplete="off" spellcheck="false" />
+          <button type="button" class="secondary-btn" id="offlineManualConnectBtn">Connect</button>
+        </div>
+        <div class="auth-error hidden" id="offlineManualError"></div>
+      </div>
     </div>
   </div>
 
@@ -3030,7 +3093,7 @@
               <div class="settings-update-hero-meta">
                 <div class="settings-update-title-row">
                   <h3 class="settings-card-title">Voiceline Desktop</h3>
-                  <span class="settings-version-pill" id="settingsCurrentVersionDisplay">v1.0.5</span>
+                  <span class="settings-version-pill" id="settingsCurrentVersionDisplay">v1.0.6</span>
                 </div>
                 <p class="settings-card-desc">Automatic updates are synchronized with GitHub releases (<code class="settings-code-repo">voiceline-diskrep/voiceline1</code>).</p>
               </div>

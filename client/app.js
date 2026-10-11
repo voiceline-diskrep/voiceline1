@@ -22,6 +22,31 @@ window.resolveAssetUrl = function(url) {
   return url;
 };
 
+window.testServerConnection = async function(url) {
+  if (!url || typeof url !== 'string') return false;
+  const cleanUrl = url.trim().replace(/\/+$/, '');
+  try {
+    if (window.electronDesktop && window.electronDesktop.testServerUrl) {
+      const res = await window.electronDesktop.testServerUrl(cleanUrl);
+      if (res) return true;
+    }
+  } catch (e) {}
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const target = cleanUrl + '/api/servers';
+    const res = await _originalFetch(target, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    return res.status >= 200 && res.status < 500;
+  } catch (e) {
+    return false;
+  }
+};
+
 window.fetchLiveServerUrlFromGitHub = async function() {
   if (window.electronDesktop && window.electronDesktop.refreshServerFromGitHub) {
     try {
@@ -33,7 +58,7 @@ window.fetchLiveServerUrlFromGitHub = async function() {
     } catch (e) {}
   }
 
-  // Fallback direct raw fetch from GitHub
+  // Method 1: Fast direct raw fetch from GitHub
   try {
     const rawUrl = 'https://raw.githubusercontent.com/voiceline-diskrep/voiceline1/main/server.txt?t=' + Date.now();
     const res = await _originalFetch(rawUrl, { cache: 'no-store' });
@@ -41,21 +66,39 @@ window.fetchLiveServerUrlFromGitHub = async function() {
       const text = (await res.text()).trim();
       if (text && text !== 'OFFLINE' && (text.startsWith('http://') || text.startsWith('https://'))) {
         const candidate = text.replace(/\/+$/, '');
-        try {
-          const testRes = await _originalFetch(candidate + '/api/servers', { method: 'GET' });
-          if (testRes.status >= 200 && testRes.status < 500) {
-            window.VOICELINE_SERVER_URL = candidate;
-            return window.VOICELINE_SERVER_URL;
-          }
-        } catch (pingErr) {}
+        const alive = await window.testServerConnection(candidate);
+        if (alive) {
+          window.VOICELINE_SERVER_URL = candidate;
+          return candidate;
+        }
       }
     }
   } catch (e) {}
 
-  return window.VOICELINE_SERVER_URL || '';
+  // Method 2: GitHub API Contents fallback (uncached)
+  try {
+    const apiUrl = 'https://api.github.com/repos/voiceline-diskrep/voiceline1/contents/server.txt?t=' + Date.now();
+    const apiRes = await _originalFetch(apiUrl, { cache: 'no-store' });
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      if (data && data.content) {
+        const decoded = atob(data.content.replace(/\s+/g, '')).trim();
+        if (decoded && decoded !== 'OFFLINE' && (decoded.startsWith('http://') || decoded.startsWith('https://'))) {
+          const candidate = decoded.replace(/\/+$/, '');
+          const alive = await window.testServerConnection(candidate);
+          if (alive) {
+            window.VOICELINE_SERVER_URL = candidate;
+            return candidate;
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
+  return null;
 };
 
-// DOM Elements - Auth
+// DOM Elements - Auth & Offline Connection
 const authOverlay = document.getElementById('authOverlay');
 const tabLoginBtn = document.getElementById('tabLoginBtn');
 const tabSignupBtn = document.getElementById('tabSignupBtn');
@@ -73,6 +116,19 @@ const signupDevPassword = document.getElementById('signupDevPassword');
 const signupError = document.getElementById('signupError');
 const suggestionBox = document.getElementById('suggestionBox');
 const useSuggestionBtn = document.getElementById('useSuggestionBtn');
+const authOfflineSwitchBtn = document.getElementById('authOfflineSwitchBtn');
+
+// DOM Elements - Server Offline / Reconnect Overlay
+const serverOfflineOverlay = document.getElementById('serverOfflineOverlay');
+const offlineStatusSubtitle = document.getElementById('offlineStatusSubtitle');
+const offlineCurrentServerDisplay = document.getElementById('offlineCurrentServerDisplay');
+const offlineStatusMsg = document.getElementById('offlineStatusMsg');
+const offlineCheckAgainBtn = document.getElementById('offlineCheckAgainBtn');
+const offlineCheckSpinIcon = document.getElementById('offlineCheckSpinIcon');
+const offlineCheckBtnText = document.getElementById('offlineCheckBtnText');
+const offlineManualUrlInput = document.getElementById('offlineManualUrlInput');
+const offlineManualConnectBtn = document.getElementById('offlineManualConnectBtn');
+const offlineManualError = document.getElementById('offlineManualError');
 
 // DOM Elements - Server Rail & Modals
 const homeBtn = document.getElementById('homeBtn');
@@ -728,7 +784,7 @@ signupForm.addEventListener('submit', async (e) => {
 
     loginSuccess(data.token, data.user);
   } catch (err) {
-    signupError.textContent = 'Could not reach server. Is it running?';
+    showServerOfflineScreen('Unable to reach server during signup. Please check connection or update server link.');
   }
 });
 
@@ -756,7 +812,7 @@ loginForm.addEventListener('submit', async (e) => {
 
     loginSuccess(data.token, data.user);
   } catch (err) {
-    loginError.textContent = 'Could not reach server. Is it running?';
+    showServerOfflineScreen('Unable to reach server during login. Please check connection or update server link.');
   }
 });
 
@@ -780,6 +836,179 @@ function loginSuccess(newToken, user) {
       initUserStatusSystem();
     }
   });
+}
+
+function updateOfflineServerDisplay(url) {
+  if (offlineCurrentServerDisplay) {
+    offlineCurrentServerDisplay.textContent = url || window.VOICELINE_SERVER_URL || 'None';
+  }
+}
+
+function showServerOfflineScreen(msg) {
+  if (authOverlay) authOverlay.classList.add('hidden');
+  if (serverOfflineOverlay) {
+    serverOfflineOverlay.classList.remove('hidden');
+    updateOfflineServerDisplay(window.VOICELINE_SERVER_URL);
+    if (offlineStatusMsg) {
+      offlineStatusMsg.textContent = msg || 'The host server is offline or starting up.';
+      offlineStatusMsg.className = 'offline-status-msg' + (msg ? ' status-error' : '');
+    }
+    if (offlineManualError) offlineManualError.classList.add('hidden');
+    if (offlineCheckAgainBtn) offlineCheckAgainBtn.disabled = false;
+    if (offlineCheckSpinIcon) offlineCheckSpinIcon.classList.add('hidden');
+    if (offlineCheckBtnText) offlineCheckBtnText.textContent = 'Check Connection Again (Checks GitHub)';
+  }
+}
+
+function hideServerOfflineScreen() {
+  if (serverOfflineOverlay) {
+    serverOfflineOverlay.classList.add('hidden');
+  }
+}
+
+function setOfflineCheckingState(isChecking) {
+  if (!offlineCheckAgainBtn) return;
+  offlineCheckAgainBtn.disabled = isChecking;
+  if (offlineCheckSpinIcon) {
+    if (isChecking) offlineCheckSpinIcon.classList.remove('hidden');
+    else offlineCheckSpinIcon.classList.add('hidden');
+  }
+  if (offlineCheckBtnText) {
+    offlineCheckBtnText.textContent = isChecking ? 'Checking GitHub...' : 'Check Connection Again (Checks GitHub)';
+  }
+}
+
+if (authOfflineSwitchBtn) {
+  authOfflineSwitchBtn.addEventListener('click', () => {
+    showServerOfflineScreen('Check connection or set emergency server link below.');
+  });
+}
+
+if (offlineCheckAgainBtn) {
+  offlineCheckAgainBtn.addEventListener('click', async () => {
+    setOfflineCheckingState(true);
+    if (offlineStatusMsg) {
+      offlineStatusMsg.textContent = 'Checking GitHub for latest server link...';
+      offlineStatusMsg.className = 'offline-status-msg';
+    }
+    if (offlineManualError) offlineManualError.classList.add('hidden');
+
+    try {
+      const liveUrl = await window.fetchLiveServerUrlFromGitHub();
+      if (liveUrl) {
+        window.VOICELINE_SERVER_URL = liveUrl;
+        if (window.electronDesktop && window.electronDesktop.setServerUrl) {
+          await window.electronDesktop.setServerUrl(liveUrl, false);
+        }
+        localStorage.setItem('voiceline_server_override', liveUrl);
+        updateOfflineServerDisplay(liveUrl);
+
+        if (offlineStatusMsg) {
+          offlineStatusMsg.textContent = 'Connected successfully! Loading...';
+          offlineStatusMsg.className = 'offline-status-msg status-success';
+        }
+
+        setTimeout(async () => {
+          setOfflineCheckingState(false);
+          hideServerOfflineScreen();
+          await checkCurrentSession();
+        }, 600);
+        return;
+      }
+
+      if (offlineStatusMsg) {
+        offlineStatusMsg.textContent = 'Server is currently offline on GitHub. Please wait for host to start, or paste the link below.';
+        offlineStatusMsg.className = 'offline-status-msg status-error';
+      }
+    } catch (err) {
+      if (offlineStatusMsg) {
+        offlineStatusMsg.textContent = 'Failed to check GitHub: ' + (err.message || 'Network error');
+        offlineStatusMsg.className = 'offline-status-msg status-error';
+      }
+    } finally {
+      setOfflineCheckingState(false);
+    }
+  });
+}
+
+if (offlineManualConnectBtn) {
+  const handleManualConnect = async () => {
+    const rawVal = offlineManualUrlInput ? offlineManualUrlInput.value.trim() : '';
+    if (!rawVal) {
+      if (offlineManualError) {
+        offlineManualError.textContent = 'Please enter a server link.';
+        offlineManualError.classList.remove('hidden');
+      }
+      return;
+    }
+
+    let candidate = rawVal;
+    if (!candidate.startsWith('http://') && !candidate.startsWith('https://')) {
+      candidate = 'https://' + candidate;
+    }
+    candidate = candidate.replace(/\/+$/, '');
+
+    offlineManualConnectBtn.disabled = true;
+    offlineManualConnectBtn.textContent = 'Testing...';
+    if (offlineManualError) offlineManualError.classList.add('hidden');
+    if (offlineStatusMsg) {
+      offlineStatusMsg.textContent = `Testing connection to ${candidate}...`;
+      offlineStatusMsg.className = 'offline-status-msg';
+    }
+
+    try {
+      const isAlive = await window.testServerConnection(candidate);
+      if (!isAlive) {
+        if (offlineManualError) {
+          offlineManualError.textContent = 'Could not reach server at this URL. Make sure it is online.';
+          offlineManualError.classList.remove('hidden');
+        }
+        if (offlineStatusMsg) {
+          offlineStatusMsg.textContent = 'Connection test failed. Check the URL and try again.';
+          offlineStatusMsg.className = 'offline-status-msg status-error';
+        }
+        return;
+      }
+
+      // Success!
+      window.VOICELINE_SERVER_URL = candidate;
+      if (window.electronDesktop && window.electronDesktop.setServerUrl) {
+        await window.electronDesktop.setServerUrl(candidate, false);
+      }
+      localStorage.setItem('voiceline_server_override', candidate);
+      updateOfflineServerDisplay(candidate);
+
+      if (offlineStatusMsg) {
+        offlineStatusMsg.textContent = 'Connected successfully! Loading...';
+        offlineStatusMsg.className = 'offline-status-msg status-success';
+      }
+
+      setTimeout(async () => {
+        offlineManualConnectBtn.disabled = false;
+        offlineManualConnectBtn.textContent = 'Connect';
+        hideServerOfflineScreen();
+        await checkCurrentSession();
+      }, 600);
+    } catch (err) {
+      if (offlineManualError) {
+        offlineManualError.textContent = 'Error: ' + err.message;
+        offlineManualError.classList.remove('hidden');
+      }
+    } finally {
+      offlineManualConnectBtn.disabled = false;
+      offlineManualConnectBtn.textContent = 'Connect';
+    }
+  };
+
+  offlineManualConnectBtn.addEventListener('click', handleManualConnect);
+  if (offlineManualUrlInput) {
+    offlineManualUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleManualConnect();
+      }
+    });
+  }
 }
 
 function showToast({ icon = '👋', title, body, actionText, onAction, duration = 6000 }) {
@@ -1233,8 +1462,59 @@ async function checkCurrentSession() {
       authOverlay.classList.remove('hidden');
     }
   } catch {
-    authOverlay.classList.remove('hidden');
+    showServerOfflineScreen('Lost connection to server. Please check connection or update server link.');
   }
+}
+
+// Boot Connection Orchestrator
+async function initializeAppConnection() {
+  // 1. Determine candidate server URL
+  let activeUrl = window.VOICELINE_SERVER_URL || '';
+  if (!activeUrl && window.electronDesktop && window.electronDesktop.getServerUrl) {
+    try {
+      activeUrl = await window.electronDesktop.getServerUrl();
+    } catch (e) {}
+  }
+  if (!activeUrl) {
+    activeUrl = localStorage.getItem('voiceline_server_override') || '';
+  }
+  if (!activeUrl && window.location.origin && !window.location.origin.startsWith('file:')) {
+    activeUrl = window.location.origin;
+  }
+  if (activeUrl && !activeUrl.startsWith('file:')) {
+    window.VOICELINE_SERVER_URL = activeUrl.replace(/\/+$/, '');
+  }
+
+  // 2. Test candidate URL
+  let isAlive = false;
+  if (window.VOICELINE_SERVER_URL) {
+    isAlive = await window.testServerConnection(window.VOICELINE_SERVER_URL);
+  }
+
+  // 3. If unreachable, attempt silent automatic recovery from GitHub
+  if (!isAlive) {
+    try {
+      const liveCandidate = await window.fetchLiveServerUrlFromGitHub();
+      if (liveCandidate) {
+        window.VOICELINE_SERVER_URL = liveCandidate;
+        if (window.electronDesktop && window.electronDesktop.setServerUrl) {
+          await window.electronDesktop.setServerUrl(liveCandidate, false);
+        }
+        localStorage.setItem('voiceline_server_override', liveCandidate);
+        isAlive = true;
+      }
+    } catch (e) {}
+  }
+
+  // 4. If still unreachable, NEVER show login screen; show Offline Screen!
+  if (!isAlive) {
+    showServerOfflineScreen('Unable to reach server. Please check connection or update link.');
+    return;
+  }
+
+  // 5. Reachable! Hide offline overlay and run session verification
+  hideServerOfflineScreen();
+  await checkCurrentSession();
 }
 
 // ==========================================
@@ -13755,8 +14035,8 @@ function bindServerMembersSidebarControls() {
 }
 bindServerMembersSidebarControls();
 
-// Boot check
-checkCurrentSession();
+// Boot connection check & session initialization
+initializeAppConnection();
 
 // ====================================================
 // VOICELINE GITHUB AUTO-UPDATE & DESKTOP SYSTEM

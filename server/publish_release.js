@@ -20,7 +20,7 @@ function getGitHubToken() {
 const GITHUB_TOKEN = getGitHubToken();
 const OWNER = 'voiceline-diskrep';
 const REPO = 'voiceline1';
-const TAG = 'v1.0.5';
+const TAG = 'v1.0.6';
 
 function apiRequest(options, postData) {
   return new Promise((resolve, reject) => {
@@ -133,7 +133,7 @@ async function main() {
       tag_name: TAG,
       target_commitish: 'main',
       name: `Voiceline ${TAG}`,
-      body: `### Voiceline ${TAG}\n\n- **Screenshot Clipboard Paste**: Press \`Ctrl + V\` anywhere in channel or direct message chats to immediately paste and attach screenshots taken with Snipping Tool or print screen.\n- **Leaving Sound Effects**: Distinct audio chimes when leaving a call or voice channel, plus leave notifications when a member departs.\n- **Profile Avatar Optimization**: Automatic in-browser canvas thumbnailing (256x256) to ensure ultra-fast uploads and prevent Cloudflare tunnel payload drops.\n- **All Message Tools**: Reply, forward, pin, edit, delete, and report.\n\nDownload **Voiceline Setup 1.0.5.exe** to install, or **Voiceline 1.0.5.exe** for portable use.`,
+      body: `### Voiceline ${TAG}\n\n- **Dedicated Server Offline & Connection Screen**: The app no longer traps users on the login screen with offline errors when the server tunnel changes. Instead, a dedicated connection recovery screen is presented immediately.\n- **Check Connection Again (Checks GitHub)**: One-click button that queries GitHub for the newest live Cloudflare tunnel link, verifies connection, and connects seamlessly without requiring re-downloading or reinstalling.\n- **Emergency Manual Link Override**: Instant paste input allowing users to enter a direct server URL (e.g. from Discord or host) if GitHub lookup is cached or delayed.\n- **Screenshot Clipboard Paste**: Press \`Ctrl + V\` anywhere to paste snippets and screenshots directly into channels and DMs.\n- **Leaving Sound Effects**: Web Audio departure chimes on call hangup and member departure.\n\nDownload **Voiceline Setup 1.0.6.exe** to install, or **Voiceline 1.0.6.exe** for portable use.`,
       draft: false,
       prerelease: false
     }));

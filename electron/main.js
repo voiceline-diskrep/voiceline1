@@ -139,16 +139,22 @@ ipcMain.handle('refresh-server-from-github', async () => {
   const liveUrl = await fetchLiveServerUrlFromGitHub();
   if (liveUrl) {
     currentServerUrl = liveUrl;
+    saveServerUrl(liveUrl);
     return { success: true, url: liveUrl };
   }
   return { success: false, currentUrl: currentServerUrl };
 });
 
-ipcMain.handle('set-server-url', (event, newUrl) => {
+ipcMain.handle('test-server-url', async (event, url) => {
+  if (!url) return false;
+  return await testServerAlive(sanitizeUrl(url));
+});
+
+ipcMain.handle('set-server-url', (event, newUrl, reload = false) => {
   if (newUrl) {
     currentServerUrl = sanitizeUrl(newUrl);
     saveServerUrl(currentServerUrl);
-    if (mainWindow) {
+    if (mainWindow && reload) {
       mainWindow.webContents.reload();
     }
     return true;
@@ -234,25 +240,21 @@ ipcMain.handle('set-selected-screen-source', (event, sourceId) => {
 });
 
 async function createWindow() {
-  // Check if user has a custom manual override in AppData
-  let hasManualOverride = false;
-  const configPath = getLocalConfigPath();
-  if (fs.existsSync(configPath)) {
-    const val = fs.readFileSync(configPath, 'utf8').trim();
-    if (val && val !== 'AUTO' && val !== 'http://localhost:3000') {
-      hasManualOverride = true;
-    }
+  // Test if currentServerUrl is alive. If not alive, discover live server URL from GitHub
+  let isAlive = false;
+  if (currentServerUrl) {
+    isAlive = await testServerAlive(currentServerUrl);
   }
 
-  // If no manual override, discover live server URL from GitHub
-  if (!hasManualOverride) {
+  if (!isAlive) {
     try {
       const liveUrl = await Promise.race([
         fetchLiveServerUrlFromGitHub(),
-        new Promise(r => setTimeout(() => r(null), 2500))
+        new Promise(r => setTimeout(() => r(null), 3000))
       ]);
       if (liveUrl) {
         currentServerUrl = liveUrl;
+        saveServerUrl(liveUrl);
         console.log('[Voiceline Discovery] Auto-connected to live server from GitHub:', currentServerUrl);
       }
     } catch (e) {

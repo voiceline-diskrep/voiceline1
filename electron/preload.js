@@ -7,7 +7,8 @@ window.IS_ELECTRON = true;
 
 const desktopApi = {
   getServerUrl: () => ipcRenderer.invoke('get-server-url'),
-  setServerUrl: (url) => ipcRenderer.invoke('set-server-url', url),
+  setServerUrl: (url, reload) => ipcRenderer.invoke('set-server-url', url, reload),
+  testServerUrl: (url) => ipcRenderer.invoke('test-server-url', url),
   refreshServerFromGitHub: () => ipcRenderer.invoke('refresh-server-from-github'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
