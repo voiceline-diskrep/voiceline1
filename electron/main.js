@@ -60,7 +60,25 @@ function saveServerUrl(url) {
 const GITHUB_RAW_SERVER_TXT = 'https://raw.githubusercontent.com/voiceline-diskrep/voiceline1/main/server.txt';
 const GITHUB_API_SERVER_TXT = 'https://api.github.com/repos/voiceline-diskrep/voiceline1/contents/server.txt';
 
+async function testServerAlive(url) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`${url}/api/servers`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    // Any HTTP status from voiceline server (e.g. 401 unauthenticated) means it is alive and valid
+    return res.status >= 200 && res.status < 500;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function fetchLiveServerUrlFromGitHub() {
+  let candidate = null;
+
   // Method 1: Fast raw fetch with cache buster
   try {
     const rawRes = await fetch(`${GITHUB_RAW_SERVER_TXT}?t=${Date.now()}`, {
@@ -70,7 +88,7 @@ async function fetchLiveServerUrlFromGitHub() {
     if (rawRes.ok) {
       const text = (await rawRes.text()).trim();
       if (text && text !== 'OFFLINE' && (text.startsWith('http://') || text.startsWith('https://'))) {
-        return sanitizeUrl(text);
+        candidate = sanitizeUrl(text);
       }
     }
   } catch (err) {
@@ -78,21 +96,29 @@ async function fetchLiveServerUrlFromGitHub() {
   }
 
   // Method 2: GitHub Contents API fallback (base64)
-  try {
-    const apiRes = await fetch(GITHUB_API_SERVER_TXT, {
-      headers: { 'User-Agent': 'Voiceline-App' }
-    });
-    if (apiRes.ok) {
-      const data = await apiRes.json();
-      if (data && data.content) {
-        const decoded = Buffer.from(data.content, 'base64').toString('utf8').trim();
-        if (decoded && decoded !== 'OFFLINE' && (decoded.startsWith('http://') || decoded.startsWith('https://'))) {
-          return sanitizeUrl(decoded);
+  if (!candidate) {
+    try {
+      const apiRes = await fetch(GITHUB_API_SERVER_TXT, {
+        headers: { 'User-Agent': 'Voiceline-App' }
+      });
+      if (apiRes.ok) {
+        const data = await apiRes.json();
+        if (data && data.content) {
+          const decoded = Buffer.from(data.content, 'base64').toString('utf8').trim();
+          if (decoded && decoded !== 'OFFLINE' && (decoded.startsWith('http://') || decoded.startsWith('https://'))) {
+            candidate = sanitizeUrl(decoded);
+          }
         }
       }
+    } catch (err) {
+      console.warn('[GitHub Discovery] API fallback failed:', err.message);
     }
-  } catch (err) {
-    console.warn('[GitHub Discovery] API fallback failed:', err.message);
+  }
+
+  if (candidate) {
+    const isAlive = await testServerAlive(candidate);
+    if (isAlive) return candidate;
+    console.warn('[GitHub Discovery] Discovered server link is unresponsive or expired:', candidate);
   }
 
   return null;

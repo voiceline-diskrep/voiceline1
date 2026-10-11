@@ -40,8 +40,14 @@ window.fetchLiveServerUrlFromGitHub = async function() {
     if (res.ok) {
       const text = (await res.text()).trim();
       if (text && text !== 'OFFLINE' && (text.startsWith('http://') || text.startsWith('https://'))) {
-        window.VOICELINE_SERVER_URL = text.replace(/\/+$/, '');
-        return window.VOICELINE_SERVER_URL;
+        const candidate = text.replace(/\/+$/, '');
+        try {
+          const testRes = await _originalFetch(candidate + '/api/servers', { method: 'GET' });
+          if (testRes.status >= 200 && testRes.status < 500) {
+            window.VOICELINE_SERVER_URL = candidate;
+            return window.VOICELINE_SERVER_URL;
+          }
+        } catch (pingErr) {}
       }
     }
   } catch (e) {}
