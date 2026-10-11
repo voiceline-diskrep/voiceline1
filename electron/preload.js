@@ -14,6 +14,8 @@ const desktopApi = {
   startUpdateDownload: (downloadUrl) => ipcRenderer.invoke('start-update-download', downloadUrl),
   installUpdate: (filePath) => ipcRenderer.invoke('install-update', filePath),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
+  getDesktopSources: () => ipcRenderer.invoke('get-desktop-sources'),
+  setSelectedScreenSource: (sourceId) => ipcRenderer.invoke('set-selected-screen-source', sourceId),
   onUpdateAvailable: (cb) => {
     ipcRenderer.on('update-available', (e, data) => cb(data));
   },

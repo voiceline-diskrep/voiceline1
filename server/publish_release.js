@@ -20,7 +20,7 @@ function getGitHubToken() {
 const GITHUB_TOKEN = getGitHubToken();
 const OWNER = 'voiceline-diskrep';
 const REPO = 'voiceline1';
-const TAG = 'v1.0.1';
+const TAG = 'v1.0.2';
 
 function apiRequest(options, postData) {
   return new Promise((resolve, reject) => {
@@ -133,7 +133,7 @@ async function main() {
       tag_name: TAG,
       target_commitish: 'main',
       name: `Voiceline ${TAG}`,
-      body: `### Voiceline ${TAG}\n\n- Full-Screen Discord-Style Voice Channels\n- Dynamic Ephemeral Server Discovery (Auto-connect via GitHub)\n- Voice & Video Calling over HTTPS\n- Custom Avatars & Stickers\n\nDownload **Voiceline Setup 1.0.0.exe** to install, or **Voiceline 1.0.0.exe** for portable use.`,
+      body: `### Voiceline ${TAG}\n\n- **Fixed Screen Sharing**: Added complete Electron desktop capture support with Discord-style screen & application window source picker.\n- Live thumbnail previews for all connected displays and active windows.\n- Robust WebRTC video track renegotiation for both Server Voice Channels and 1-to-1 DM calls.\n- Dynamic Ephemeral Server Discovery.\n\nDownload **Voiceline Setup 1.0.2.exe** to install, or **Voiceline 1.0.2.exe** for portable use.`,
       draft: false,
       prerelease: false
     }));

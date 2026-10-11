@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, Menu, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, dialog, shell, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -180,6 +180,33 @@ ipcMain.handle('open-external-url', (event, url) => {
   return false;
 });
 
+let activeScreenSourceId = null;
+
+ipcMain.handle('get-desktop-sources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 360, height: 200 },
+      fetchWindowIcons: true
+    });
+    return sources.map(s => ({
+      id: s.id,
+      name: s.name,
+      display_id: s.display_id,
+      thumbnail: s.thumbnail ? s.thumbnail.toDataURL() : null,
+      appIcon: s.appIcon ? s.appIcon.toDataURL() : null
+    }));
+  } catch (err) {
+    console.error('get-desktop-sources error:', err);
+    return [];
+  }
+});
+
+ipcMain.handle('set-selected-screen-source', (event, sourceId) => {
+  activeScreenSourceId = sourceId || null;
+  return true;
+});
+
 async function createWindow() {
   // Check if user has a custom manual override in AppData
   let hasManualOverride = false;
@@ -235,6 +262,29 @@ async function createWindow() {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     callback(true);
   });
+
+  // Enable Screen Sharing via navigator.mediaDevices.getDisplayMedia() in Electron
+  if (session.defaultSession.setDisplayMediaRequestHandler) {
+    session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+        if (sources && sources.length > 0) {
+          let chosen = sources[0];
+          if (activeScreenSourceId) {
+            const match = sources.find(s => s.id === activeScreenSourceId);
+            if (match) chosen = match;
+            activeScreenSourceId = null;
+          }
+          callback({ video: chosen });
+        } else {
+          callback({});
+        }
+      } catch (err) {
+        console.error('Display media request error:', err);
+        callback({});
+      }
+    });
+  }
 
   // Load the client directly from local disk (0ms load, offline-first)
   const clientHtmlPath = path.join(__dirname, '..', 'client', 'index.html');

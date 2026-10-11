@@ -11199,3 +11199,112 @@ body.disable-urgent-flash .channel-message.red-mention-ping-active {
   gap: 10px;
   align-items: center;
 }
+
+/* Screen Share Source Picker Modal */
+.screen-picker-card {
+  max-width: 640px;
+  width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.screen-picker-header-title h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-header);
+}
+.screen-picker-header-title p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.screen-picker-tabs {
+  display: flex;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  margin-top: 10px;
+}
+.screen-tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+.screen-tab-btn:hover {
+  color: var(--text-normal);
+}
+.screen-tab-btn.active {
+  color: var(--text-header);
+  border-bottom-color: var(--accent);
+}
+.screen-picker-body {
+  padding: 20px;
+  overflow-y: auto;
+  max-height: 420px;
+  flex: 1;
+}
+.screen-sources-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
+}
+.screen-source-item {
+  background: var(--bg-secondary);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.screen-source-item:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.2));
+  transform: translateY(-2px);
+}
+.screen-source-item.selected {
+  border-color: var(--accent, #5865F2);
+  box-shadow: 0 0 12px rgba(88, 101, 242, 0.4);
+}
+.screen-source-thumb-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.screen-source-thumb-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.screen-source-meta {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.screen-source-app-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.screen-source-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -4029,8 +4029,202 @@ async function toggleCamera() {
 }
 
 // =======================================================
-// SCREEN SHARING SYSTEM (WebRTC getDisplayMedia)
+// SCREEN SHARING SYSTEM (WebRTC getDisplayMedia & Desktop Picker)
 // =======================================================
+
+// Interactive Discord-style screen picker for Electron / Desktop
+function openScreenSharePicker() {
+  return new Promise((resolve, reject) => {
+    // If not running in Electron with getDesktopSources, fallback directly to native browser getDisplayMedia
+    if (!window.electronDesktop || typeof window.electronDesktop.getDesktopSources !== 'function') {
+      acquireDisplayMediaStream().then(resolve).catch(reject);
+      return;
+    }
+
+    const modalOverlay = document.getElementById('screenPickerModalOverlay');
+    const sourcesGrid = document.getElementById('screenPickerSourcesGrid');
+    const tabScreensBtn = document.getElementById('screenTabScreensBtn');
+    const tabWindowsBtn = document.getElementById('screenTabWindowsBtn');
+    const confirmBtn = document.getElementById('confirmScreenPickerBtn');
+    const cancelBtn = document.getElementById('cancelScreenPickerModalBtn');
+    const closeBtn = document.getElementById('closeScreenPickerModalBtn');
+
+    if (!modalOverlay || !sourcesGrid) {
+      acquireDisplayMediaStream().then(resolve).catch(reject);
+      return;
+    }
+
+    let allSources = [];
+    let activeTab = 'screens'; // 'screens' | 'windows'
+    let selectedSourceId = null;
+
+    const cleanup = () => {
+      modalOverlay.classList.add('hidden');
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.onclick = null;
+      }
+      if (cancelBtn) cancelBtn.onclick = null;
+      if (closeBtn) closeBtn.onclick = null;
+      if (tabScreensBtn) tabScreensBtn.onclick = null;
+      if (tabWindowsBtn) tabWindowsBtn.onclick = null;
+    };
+
+    const renderSources = () => {
+      sourcesGrid.innerHTML = '';
+      const filtered = allSources.filter(s => {
+        if (activeTab === 'screens') return s.id.startsWith('screen:');
+        return s.id.startsWith('window:');
+      });
+
+      if (filtered.length === 0) {
+        sourcesGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 30px 10px;">
+            No ${activeTab === 'screens' ? 'screens' : 'windows'} detected.
+          </div>
+        `;
+        return;
+      }
+
+      filtered.forEach(source => {
+        const item = document.createElement('div');
+        item.className = 'screen-source-item' + (selectedSourceId === source.id ? ' selected' : '');
+        item.dataset.sourceId = source.id;
+
+        const thumbWrap = document.createElement('div');
+        thumbWrap.className = 'screen-source-thumb-wrap';
+        if (source.thumbnail) {
+          const thumbImg = document.createElement('img');
+          thumbImg.src = source.thumbnail;
+          thumbImg.alt = source.name;
+          thumbWrap.appendChild(thumbImg);
+        } else {
+          thumbWrap.innerHTML = '<span style="color:#666;font-size:24px;">🖥️</span>';
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'screen-source-meta';
+        if (source.appIcon) {
+          const icon = document.createElement('img');
+          icon.className = 'screen-source-app-icon';
+          icon.src = source.appIcon;
+          meta.appendChild(icon);
+        }
+        const title = document.createElement('span');
+        title.className = 'screen-source-title';
+        title.textContent = source.name || 'Screen';
+        title.title = source.name || '';
+        meta.appendChild(title);
+
+        item.appendChild(thumbWrap);
+        item.appendChild(meta);
+
+        item.addEventListener('click', () => {
+          selectedSourceId = source.id;
+          sourcesGrid.querySelectorAll('.screen-source-item').forEach(el => el.classList.remove('selected'));
+          item.classList.add('selected');
+          if (confirmBtn) confirmBtn.disabled = false;
+        });
+
+        // Double click to instantly pick and stream
+        item.addEventListener('dblclick', () => {
+          selectedSourceId = source.id;
+          handleConfirm();
+        });
+
+        sourcesGrid.appendChild(item);
+      });
+    };
+
+    const handleConfirm = async () => {
+      if (!selectedSourceId) return;
+      cleanup();
+      try {
+        if (window.electronDesktop.setSelectedScreenSource) {
+          await window.electronDesktop.setSelectedScreenSource(selectedSourceId);
+        }
+        const stream = await acquireDisplayMediaStream();
+        resolve(stream);
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    const handleCancel = () => {
+      cleanup();
+      reject(new DOMException('User cancelled screen selection', 'NotAllowedError'));
+    };
+
+    if (cancelBtn) cancelBtn.onclick = handleCancel;
+    if (closeBtn) closeBtn.onclick = handleCancel;
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.onclick = handleConfirm;
+    }
+
+    if (tabScreensBtn) {
+      tabScreensBtn.onclick = () => {
+        activeTab = 'screens';
+        tabScreensBtn.classList.add('active');
+        if (tabWindowsBtn) tabWindowsBtn.classList.remove('active');
+        renderSources();
+      };
+    }
+
+    if (tabWindowsBtn) {
+      tabWindowsBtn.onclick = () => {
+        activeTab = 'windows';
+        tabWindowsBtn.classList.add('active');
+        if (tabScreensBtn) tabScreensBtn.classList.remove('active');
+        renderSources();
+      };
+    }
+
+    // Fetch sources from Electron desktopCapturer
+    modalOverlay.classList.remove('hidden');
+    sourcesGrid.innerHTML = `
+      <div style="grid-column: 1 / -1; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--text-muted); padding:40px 10px;">
+        <div class="spinner"></div>
+        <span>Loading screen previews...</span>
+      </div>
+    `;
+
+    window.electronDesktop.getDesktopSources().then(sources => {
+      allSources = sources || [];
+      if (tabScreensBtn) tabScreensBtn.classList.add('active');
+      if (tabWindowsBtn) tabWindowsBtn.classList.remove('active');
+      activeTab = 'screens';
+      // Default select the first screen if available
+      if (allSources.length > 0) {
+        selectedSourceId = allSources[0].id;
+        if (confirmBtn) confirmBtn.disabled = false;
+      }
+      renderSources();
+    }).catch(err => {
+      console.warn('Failed to get desktop sources, falling back to native capture:', err);
+      cleanup();
+      acquireDisplayMediaStream().then(resolve).catch(reject);
+    });
+  });
+}
+
+async function acquireDisplayMediaStream() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    throw new Error('Screen sharing requires browser displayMedia support.');
+  }
+  try {
+    return await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: 'always', frameRate: { ideal: 30, max: 60 } },
+      audio: true
+    });
+  } catch (eWithAudio) {
+    return await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: 'always', frameRate: { ideal: 30, max: 60 } },
+      audio: false
+    });
+  }
+}
+
 async function toggleScreenShare() {
   if (currentCall.status !== 'connected' && currentCall.status !== 'calling') {
     if (activeDmFriend) {
@@ -4049,25 +4243,8 @@ async function toggleScreenShare() {
 }
 
 async function startScreenShare() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-    alert('Screen sharing requires browser displayMedia support over localhost or HTTPS.');
-    return;
-  }
-
   try {
-    let screenStream = null;
-    try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always' },
-        audio: true
-      });
-    } catch (eWithAudio) {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false
-      });
-    }
-
+    const screenStream = await openScreenSharePicker();
     const screenTrack = screenStream.getVideoTracks()[0];
     if (!screenTrack) throw new Error('No screen video track captured.');
 
@@ -4077,7 +4254,7 @@ async function startScreenShare() {
     currentCall.localScreenTrack = screenTrack;
     currentCall.isScreenSharing = true;
 
-    // Listen to browser's native "Stop Sharing" floating button
+    // Listen to browser / stream's native "Stop Sharing" button
     screenTrack.onended = () => {
       stopScreenShare();
     };
@@ -4093,6 +4270,8 @@ async function startScreenShare() {
 
     if (sender) {
       await sender.replaceTrack(screenTrack);
+    } else if (currentCall.peerConnection) {
+      currentCall.videoSender = currentCall.peerConnection.addTrack(screenTrack, screenStream);
     }
 
     // Local preview in PiP
@@ -4129,8 +4308,8 @@ async function startScreenShare() {
       duration: 3500
     });
   } catch (err) {
-    if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied')) {
-      return; // User clicked "Cancel" in the native picker
+    if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied') || err.message?.includes('cancelled')) {
+      return; // User clicked "Cancel" in picker
     }
     console.warn('Screen share failed:', err);
     alert('Could not start screen sharing: ' + (err.message || err.name));
@@ -4874,6 +5053,7 @@ function getOrCreatePeerConnection(targetUserId) {
 function attachRemoteVideoToCard(userId, stream) {
   const card = document.querySelector(`.voice-stage-card[data-user-id="${userId}"]`);
   if (!card) return;
+  card.classList.add('has-video');
   let videoEl = card.querySelector('.voice-card-video');
   if (!videoEl) {
     videoEl = document.createElement('video');
@@ -4883,6 +5063,7 @@ function attachRemoteVideoToCard(userId, stream) {
     card.insertBefore(videoEl, card.firstChild);
   }
   videoEl.srcObject = stream;
+  videoEl.play().catch(e => console.warn('Remote video playback error:', e));
 }
 
 async function handleServerVoiceSignal(msg) {
@@ -5355,21 +5536,47 @@ async function toggleServerVoiceScreenShare() {
       serverVoiceState.screenStream = null;
     }
     serverVoiceState.isScreenShare = false;
+
+    // Restore camera track if camera was active, or remove/null video sender
     serverVoiceState.peerConnections.forEach(pc => {
       const senders = pc.getSenders();
-      const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-      if (videoSender) pc.removeTrack(videoSender);
+      const videoSender = senders.find(s => s.track && s.track.kind === 'video') || senders.find(s => s.track === null);
+      if (videoSender) {
+        if (serverVoiceState.isVideo && serverVoiceState.cameraStream) {
+          const camTrack = serverVoiceState.cameraStream.getVideoTracks()[0];
+          if (camTrack) videoSender.replaceTrack(camTrack).catch(() => {});
+        } else {
+          try { videoSender.replaceTrack(null); } catch {}
+          try { pc.removeTrack(videoSender); } catch {}
+        }
+      }
     });
+
     sendServerVoiceMediaState();
     updateServerVoiceControlsUI();
     renderVoiceStageGrid();
+
+    // Trigger renegotiation on stop
+    serverVoiceState.peerConnections.forEach((pc, targetUserId) => {
+      pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'server_voice_signal',
+            channelId: serverVoiceState.channelId,
+            targetUserId,
+            signal: { type: 'offer', sdp: pc.localDescription }
+          }));
+        }
+      }).catch(err => console.warn('Renegotiation error on screenshare remove:', err));
+    });
   } else {
     // Start screen share
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenStream = await openScreenSharePicker();
       serverVoiceState.screenStream = screenStream;
       serverVoiceState.isScreenShare = true;
       const screenTrack = screenStream.getVideoTracks()[0];
+      if (!screenTrack) throw new Error('No screen video track captured.');
 
       screenTrack.onended = () => {
         if (serverVoiceState.isScreenShare) {
@@ -5378,7 +5585,16 @@ async function toggleServerVoiceScreenShare() {
       };
 
       serverVoiceState.peerConnections.forEach(pc => {
-        pc.addTrack(screenTrack, screenStream);
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video') || senders.find(s => s.track === null);
+        if (videoSender) {
+          videoSender.replaceTrack(screenTrack).catch(err => {
+            console.warn('replaceTrack failed, adding track directly:', err);
+            pc.addTrack(screenTrack, screenStream);
+          });
+        } else {
+          pc.addTrack(screenTrack, screenStream);
+        }
       });
 
       sendServerVoiceMediaState();
@@ -5398,7 +5614,7 @@ async function toggleServerVoiceScreenShare() {
         }).catch(err => console.error('Renegotiation error on screenshare add:', err));
       });
     } catch (err) {
-      if (err.name !== 'NotAllowedError') {
+      if (err.name !== 'NotAllowedError' && !err.message?.includes('cancelled')) {
         showToast({ icon: '🖥️', title: 'Screen Share Error', body: 'Could not share screen: ' + (err.message || err.name) });
       }
     }
