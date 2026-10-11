@@ -5,7 +5,7 @@ const http = require('http');
 const updater = require('./updater');
 
 let mainWindow = null;
-const DEFAULT_REMOTE_URL = 'http://localhost:3000';
+const DEFAULT_REMOTE_URL = 'https://appointments-earthquake-vote-outlined.trycloudflare.com';
 
 function getLocalConfigPath() {
   return path.join(app.getPath('userData'), 'server_url.txt');
