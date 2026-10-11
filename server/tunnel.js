@@ -2,8 +2,12 @@ const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+const projectRoot = path.join(__dirname, '..');
+const serverTxtPath = path.join(projectRoot, 'server.txt');
+
 console.log('====================================================');
-console.log('  Creating a secure internet link for your friends...');
+console.log('  Voiceline Cloudflare Tunnel & GitHub Publisher');
+console.log('  Starting secure tunnel & linking with GitHub...');
 console.log('====================================================\n');
 
 // 1. Locate cloudflared binary
@@ -22,6 +26,27 @@ const tunnel = spawn(cloudflaredBin, ['tunnel', '--url', 'http://localhost:3000'
 
 let foundLink = false;
 
+function publishToGitHub(url) {
+  try {
+    fs.writeFileSync(serverTxtPath, url, 'utf8');
+    console.log('  [1/3] Saved live URL to server.txt');
+
+    // Stage and commit
+    execSync('git add server.txt', { cwd: projectRoot, stdio: 'ignore' });
+    execSync(`git commit -m "chore(live): update server URL to ${url} [skip ci]"`, { cwd: projectRoot, stdio: 'ignore' });
+    console.log('  [2/3] Committed server URL update');
+
+    // Push to GitHub
+    execSync('git push origin main', { cwd: projectRoot, stdio: 'ignore' });
+    console.log('  [3/3] Pushed to GitHub repository (voiceline-diskrep/voiceline1)!\n');
+    return true;
+  } catch (err) {
+    console.warn('\n  [GitHub Warning] Auto-push to GitHub encountered an issue:', err.message);
+    console.warn('  (Friends can still connect using the direct Share Link below)\n');
+    return false;
+  }
+}
+
 function processOutput(data) {
   const text = data.toString();
   
@@ -34,19 +59,25 @@ function processOutput(data) {
     // Try copying to clipboard automatically on Windows
     try {
       execSync(`powershell -command "Set-Clipboard -Value '${shareUrl}'"`);
-    } catch (e) {
-      // Ignore if clipboard copy fails
-    }
+    } catch (e) {}
 
-    console.log('\n====================================================');
-    console.log('  SUCCESS! VOICELINE IS READY FOR YOUR FRIENDS');
+    console.log('====================================================');
+    console.log('  SUCCESS! VOICELINE IS LIVE & CONNECTED');
     console.log('====================================================');
     console.log(`\n  Share Link:  ${shareUrl}\n`);
-    console.log('  (This link has been COPIED to your clipboard!)');
-    console.log('  Just press Ctrl + V in Discord, WhatsApp, or text');
-    console.log('  to send it to your friends.');
+    console.log('  [GitHub Auto-Discovery] Publishing live URL to GitHub...');
+    const pushed = publishToGitHub(shareUrl);
+
+    if (pushed) {
+      console.log('====================================================');
+      console.log('  * GITHUB DYNAMIC DISCOVERY: ACTIVE');
+      console.log('  * Friends opening Voiceline will fetch this link');
+      console.log('    and connect AUTOMATICALLY with ZERO pasting!');
+      console.log('====================================================');
+    }
+
     console.log('\n  Keep this window and start.bat open while chatting.');
-    console.log('  To close, press Ctrl + C or close this window.');
+    console.log('  To stop the tunnel, press Ctrl + C or close this window.');
     console.log('====================================================\n');
   }
 }
@@ -62,3 +93,20 @@ tunnel.on('error', (err) => {
 tunnel.on('close', (code) => {
   console.log(`\nTunnel closed. (code ${code})`);
 });
+
+// Mark as offline when user terminates tunnel
+let isExiting = false;
+function handleExit() {
+  if (isExiting) return;
+  isExiting = true;
+  try {
+    fs.writeFileSync(serverTxtPath, 'OFFLINE', 'utf8');
+    execSync('git add server.txt', { cwd: projectRoot, stdio: 'ignore' });
+    execSync('git commit -m "chore(live): server offline [skip ci]"', { cwd: projectRoot, stdio: 'ignore' });
+    execSync('git push origin main', { cwd: projectRoot, stdio: 'ignore' });
+  } catch (e) {}
+  process.exit(0);
+}
+
+process.on('SIGINT', handleExit);
+process.on('SIGTERM', handleExit);

@@ -2,9 +2,11 @@
   "name": "voiceline",
   "version": "1.0.0",
   "description": "A private, self-hosted chat app for friends",
-  "main": "server/server.js",
+  "main": "electron/main.js",
   "scripts": {
-    "start": "node server/server.js"
+    "start": "node server/server.js",
+    "electron": "electron .",
+    "dist": "electron-builder --win"
   },
   "keywords": [
     "chat",
@@ -15,6 +17,45 @@
   "author": "voiceline-diskrep",
   "license": "ISC",
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.voiceline.app",
+    "productName": "Voiceline",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "client/**/*",
+      "electron/**/*",
+      "package.json",
+      "server.txt"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "voiceline-diskrep",
+        "repo": "voiceline1"
+      }
+    ],
+    "win": {
+      "icon": "electron/icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Voiceline"
+    }
   }
 }

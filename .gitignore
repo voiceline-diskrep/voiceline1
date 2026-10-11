@@ -4,3 +4,7 @@ node_modules/
 *.log
 .env
 uploads/
+dist-electron/
+dist/
+ngrok.exe
+*.bak

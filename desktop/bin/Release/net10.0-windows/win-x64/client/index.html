@@ -1,0 +1,2701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>Voiceline</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    (function() {
+      try {
+        const theme = localStorage.getItem('voiceline_theme') || 'discord';
+        document.documentElement.setAttribute('data-theme', theme);
+        if (localStorage.getItem('voiceline_promo_banner_dismissed') === 'true') {
+          document.documentElement.classList.add('promo-dismissed');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- Authentication Modal (Sign-Up / Log-In) -->
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="auth-logo">Voiceline</div>
+        <p class="auth-tagline">A private chat app for your friends</p>
+      </div>
+
+      <!-- Tabs -->
+      <div class="auth-tabs">
+        <button type="button" class="tab-btn active" id="tabLoginBtn">Log In</button>
+        <button type="button" class="tab-btn" id="tabSignupBtn">Sign Up</button>
+      </div>
+
+      <!-- Log In Form -->
+      <form id="loginForm" class="auth-form" autocomplete="on">
+        <div class="form-group">
+          <label for="loginUsername">Username</label>
+          <input type="text" id="loginUsername" placeholder="e.g. russell" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="��������" required autocomplete="current-password" />
+        </div>
+        <div class="auth-error" id="loginError"></div>
+        <button type="submit" class="primary-btn" id="loginSubmitBtn">Log In</button>
+      </form>
+
+      <!-- Sign Up Form -->
+      <form id="signupForm" class="auth-form hidden" autocomplete="off">
+        <div class="form-group">
+          <label for="signupDisplayName">Display Name <span class="label-hint">(what friends see)</span></label>
+          <input type="text" id="signupDisplayName" placeholder="e.g. Russell K." required maxlength="32" />
+        </div>
+        <div class="form-group">
+          <label for="signupUsername">Desired Username <span class="label-hint">(unique login name)</span></label>
+          <input type="text" id="signupUsername" placeholder="e.g. russell" required maxlength="20" />
+        </div>
+
+        <!-- Username Suggestion Alert -->
+        <div class="suggestion-box hidden" id="suggestionBox">
+          <span>Username taken! How about </span>
+          <button type="button" id="useSuggestionBtn" class="suggestion-pill"></button>
+        </div>
+
+        <div class="form-group">
+          <label for="signupPassword">Password</label>
+          <input type="password" id="signupPassword" placeholder="��������" required minlength="4" />
+        </div>
+
+        <!-- Developer Account Checkbox -->
+        <div class="dev-checkbox-group">
+          <label class="checkbox-container">
+            <input type="checkbox" id="signupIsDev" />
+            <span class="checkmark"></span>
+            Register as Developer
+          </label>
+        </div>
+
+        <!-- Developer Password (only visible when box checked) -->
+        <div class="form-group hidden" id="devPasswordGroup">
+          <label for="signupDevPassword">Developer Master Password <span class="label-hint">(from your .env file)</span></label>
+          <input type="password" id="signupDevPassword" placeholder="Developer secret password" />
+        </div>
+
+        <div class="auth-error" id="signupError"></div>
+        <button type="submit" class="primary-btn" id="signupSubmitBtn">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Server Modal (Developer Only) -->
+  <div class="modal-overlay hidden" id="createServerModalOverlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Create a Server</h2>
+        <p>Give your new server a name (e.g. Gaming, Music, Chill Lounge).</p>
+      </div>
+      <form id="createServerForm">
+        <div class="form-group">
+          <label for="serverNameInput">SERVER NAME</label>
+          <input type="text" id="serverNameInput" placeholder="e.g. Gaming Lounge" required maxlength="32" />
+        </div>
+        <div class="auth-error" id="createServerError"></div>
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" id="cancelCreateServerBtn">Cancel</button>
+          <button type="submit" class="primary-btn" id="submitCreateServerBtn">Create Server</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Join Server Modal -->
+  <div class="modal-overlay hidden" id="browseServerModalOverlay">
+    <div class="modal-card join-server-modal-card">
+      <div class="modal-header">
+        <h2>Join a Server</h2>
+        <p>Enter a 6-character server join code provided by a developer or friend.</p>
+      </div>
+      <form id="joinServerForm">
+        <div class="form-group">
+          <label for="joinServerCodeInput">SERVER JOIN CODE</label>
+          <input 
+            type="text" 
+            id="joinServerCodeInput" 
+            placeholder="e.g. 7K2M9X" 
+            required 
+            maxlength="8" 
+            autocomplete="off" 
+            spellcheck="false" 
+            class="join-code-input"
+          />
+          <span class="upload-hint">Codes are 6 letters/numbers (not case-sensitive).</span>
+        </div>
+        <div class="auth-error" id="joinServerError"></div>
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" id="cancelJoinServerBtn">Cancel</button>
+          <button type="submit" class="primary-btn" id="submitJoinServerBtn">Join Server</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Channel Modal -->
+  <div class="modal-overlay hidden" id="createChannelModalOverlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="createChannelModalTitle">Create Channel</h2>
+        <p>Channels are where your conversations happen inside this server.</p>
+      </div>
+      <form id="createChannelForm">
+        <div class="form-group">
+          <label>CHANNEL TYPE</label>
+          <div class="channel-type-selector">
+            <label class="channel-type-option active" id="channelTypeOptionText">
+              <input type="radio" name="channelTypeRadio" value="text" checked class="hidden-radio" />
+              <div class="channel-type-icon">#</div>
+              <div class="channel-type-details">
+                <span class="channel-type-title">Text</span>
+                <span class="channel-type-sub">Post messages, images, files, and more</span>
+              </div>
+            </label>
+            <label class="channel-type-option" id="channelTypeOptionVoice">
+              <input type="radio" name="channelTypeRadio" value="voice" class="hidden-radio" />
+              <div class="channel-type-icon">🔊</div>
+              <div class="channel-type-details">
+                <span class="channel-type-title">Voice</span>
+                <span class="channel-type-sub">Hang out together with voice, video, and screen share</span>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="channelNameInput">CHANNEL NAME</label>
+          <div class="channel-input-wrapper">
+            <span class="channel-prefix" id="createChannelPrefix">#</span>
+            <input type="text" id="channelNameInput" placeholder="new-channel" required maxlength="32" />
+          </div>
+        </div>
+        <div class="auth-error" id="createChannelError"></div>
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" id="cancelCreateChannelBtn">Cancel</button>
+          <button type="submit" class="primary-btn" id="submitCreateChannelBtn">Create Channel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- My Profile Modal -->
+  <div class="modal-overlay hidden" id="myProfileModalOverlay">
+    <div class="modal-card profile-modal-card">
+      <div class="modal-header">
+        <h2>My Profile</h2>
+        <p>Customize your identity across channels and private chats.</p>
+      </div>
+      <form id="myProfileForm">
+        <div class="profile-avatar-edit-section">
+          <div class="profile-avatar-large" id="myProfileAvatarPreview">U</div>
+          <div class="profile-avatar-edit-controls">
+            <input type="file" id="profilePfpInput" accept="image/png, image/jpeg, image/webp, image/gif" class="hidden" />
+            <button type="button" class="secondary-btn btn-sm" id="changeAvatarBtn">Upload Picture</button>
+            <button type="button" class="secondary-btn btn-sm btn-danger-text hidden" id="removeAvatarBtn">Remove</button>
+            <span class="upload-hint">PNG, JPG, WebP or GIF (Max 2MB)</span>
+          </div>
+        </div>
+
+        <div class="form-group mt-15">
+          <label for="profileUsernameDisplay">USERNAME</label>
+          <input type="text" id="profileUsernameDisplay" readonly disabled class="input-disabled" />
+        </div>
+
+        <div class="form-group">
+          <label for="profileDisplayNameInput">DISPLAY NAME</label>
+          <input type="text" id="profileDisplayNameInput" placeholder="Your display name" required maxlength="32" />
+        </div>
+
+        <div class="form-group">
+          <label for="profileBioInput">ABOUT ME</label>
+          <textarea id="profileBioInput" placeholder="Tell others a little about yourself..." maxlength="300" rows="3" class="profile-bio-textarea"></textarea>
+          <div class="bio-char-count"><span id="bioCharCount">0</span>/300</div>
+        </div>
+
+        <div class="auth-error" id="myProfileError"></div>
+
+        <div class="modal-actions">
+          <button type="button" class="secondary-btn" id="cancelMyProfileBtn">Cancel</button>
+          <button type="submit" class="primary-btn" id="saveMyProfileBtn">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Profile View Modal -->
+  <div class="modal-overlay hidden" id="userProfileModalOverlay">
+    <div class="modal-card user-card-popover">
+      <div class="user-card-header-banner"></div>
+      <div class="user-card-body">
+        <div class="user-card-avatar-wrapper">
+          <div class="user-card-avatar" id="viewUserAvatar">U</div>
+          <div class="user-status-badge status-large status-offline" id="viewUserStatusBadge" title="Offline"></div>
+        </div>
+        <div class="user-card-info">
+          <div class="user-card-display-row">
+            <h3 class="user-card-display-name" id="viewUserDisplayName">User Name</h3>
+            <span class="dev-badge hidden" id="viewUserDevBadge">DEV</span>
+            <span class="user-status-pill status-pill-offline" id="viewUserStatusPill">Offline</span>
+          </div>
+          <div class="user-card-handle" id="viewUserHandle">@username</div>
+          <div class="user-card-custom-status-box hidden" id="viewUserCustomStatusBox">
+            <span class="custom-status-emoji-lg" id="viewUserCustomStatusEmoji"></span>
+            <span class="custom-status-text-lg" id="viewUserCustomStatusText"></span>
+          </div>
+          <div class="user-card-mutual-row" id="viewUserMutualRow">
+            <span class="mutual-text" id="viewUserMutualText">0 Mutual Friends • 0 Mutual Servers</span>
+          </div>
+        </div>
+
+        <div class="user-card-bio-section">
+          <div class="user-card-bio-label">ABOUT ME</div>
+          <div class="user-card-bio-text" id="viewUserBio">No bio yet.</div>
+        </div>
+
+        <div class="user-card-actions" id="viewUserActions">
+          <button type="button" class="primary-btn btn-action-with-icon" id="viewUserMessageBtn" title="Direct Message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2z"/>
+            </svg>
+            <span>Message</span>
+          </button>
+          <button type="button" class="btn-call-profile" id="viewUserCallBtn" title="Start Call">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-1-1z"/>
+            </svg>
+            <span>Call</span>
+          </button>
+        </div>
+        <div class="modal-actions mt-15">
+          <button type="button" class="secondary-btn btn-full" id="closeUserProfileBtn">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage Accounts Modal (Developer Only) -->
+  <div class="modal-overlay hidden" id="manageAccountsModalOverlay">
+    <div class="modal-card accounts-modal-card">
+      <div class="modal-header accounts-modal-header">
+        <div>
+          <h2>Account Management</h2>
+          <p>Review registered accounts, join dates, and manage access.</p>
+        </div>
+        <span class="accounts-total-pill" id="accountsTotalPill">0 Accounts</span>
+      </div>
+      <div class="accounts-search-bar">
+        <input type="text" id="accountsSearchInput" placeholder="Search by username or display name..." />
+      </div>
+      <div class="accounts-list-container">
+        <div class="accounts-loading" id="accountsLoading">Loading registered accounts...</div>
+        <div class="accounts-list" id="accountsList"></div>
+      </div>
+      <div class="modal-actions mt-15">
+        <button type="button" class="secondary-btn btn-full" id="closeManageAccountsBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal for Removing Account -->
+  <div class="modal-overlay hidden" id="confirmRemoveAccountModalOverlay">
+    <div class="modal-card confirm-modal-card">
+      <div class="modal-header">
+        <h2>Remove Account</h2>
+        <p id="confirmRemoveAccountMessage">Are you sure you want to remove this account?</p>
+      </div>
+      <div class="confirm-warning-box">
+        <span class="warning-icon">⚠️</span>
+        <div class="warning-text">
+          This user will be <strong>immediately disconnected</strong>, removed from all friends lists and servers, and cannot log in again. Past messages will stay visible as <strong>Deleted User</strong>. <em>This action cannot be undone.</em>
+        </div>
+      </div>
+      <div class="modal-actions mt-20">
+        <button type="button" class="secondary-btn" id="cancelConfirmRemoveAccountBtn">Cancel</button>
+        <button type="button" class="danger-btn" id="submitConfirmRemoveAccountBtn">Yes, Remove Account</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="global-app-container" id="globalAppContainer">
+    <!-- Global Promotional Banner (Nitro Offer) -->
+    <div class="global-promo-banner" id="globalPromoBanner">
+      <div class="promo-content">
+        <span class="promo-pill">Nitro</span>
+        <span class="promo-text">New Nitro Reward! Get 20% off your next 6 months of Nitro Basic or Nitro with code <strong>NITRO2026</strong> at checkout.</span>
+        <button type="button" class="promo-claim-btn" id="promoClaimBtn">Claim Offer</button>
+      </div>
+      <button type="button" class="promo-close-btn" id="promoCloseBtn" title="Dismiss banner" aria-label="Dismiss banner">&times;</button>
+    </div>
+
+    <!-- App Wrapper: Server Rail + Sidebar + Main View -->
+    <div class="app-wrapper">
+      <!-- Combined Navigation Drawer (Drawer on mobile/tablets, static on desktop) -->
+      <div class="sidebar-wrapper" id="sidebarWrapper">
+        <!-- 1. Left Server Rail (Discord Style) -->
+        <nav class="server-rail" aria-label="Servers">
+      <!-- Friends / Home Button -->
+      <div class="server-item" id="homeBtn" title="Friends">
+        <div class="server-pill"></div>
+        <button type="button" class="server-icon home-icon" aria-label="Friends">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+          </svg>
+          <span class="home-pending-badge hidden" id="homePendingBadge">0</span>
+        </button>
+      </div>
+
+      <div class="rail-divider"></div>
+
+      <!-- Servers List -->
+      <div class="server-list" id="serverList"></div>
+
+      <div class="rail-divider"></div>
+      <!-- Browse / Join Server Button (All Users) -->
+      <button type="button" class="browse-server-btn" id="openBrowseServersBtn" title="Join a Server">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1.5-6.5l-1.5 4.5 4.5-1.5 1.5-4.5-4.5 1.5z"/>
+        </svg>
+      </button>
+
+      <!-- Add Server Button (Developer Only) -->
+      <button type="button" class="add-server-btn hidden" id="openCreateServerBtn" title="Create a Server">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+        </svg>
+      </button>
+    </nav>
+
+    <!-- 2A. Channel Sidebar (Shown when viewing a server) -->
+    <aside class="channel-sidebar" id="channelSidebar">
+      <div class="server-banner">
+        <h2 class="server-title-text" id="currentServerTitle">Voiceline</h2>
+        <div class="server-code-badge hidden" id="developerServerCodeBadge" title="Server Join Code">
+          <span class="code-badge-label">JOIN CODE:</span>
+          <span class="code-badge-value" id="displayedJoinCode">------</span>
+          <button type="button" class="code-action-btn" id="copyServerCodeBtn" title="Copy join code">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+              <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
+          </button>
+          <button type="button" class="code-action-btn" id="regenServerCodeBtn" title="Regenerate join code">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+              <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="channels-scroll-container" id="channelsScrollContainer">
+        <div class="channel-section">
+          <div class="channel-section-header">
+            <span class="channel-section-title">TEXT CHANNELS</span>
+            <button type="button" class="add-channel-btn hidden" id="openCreateChannelBtn" title="Create Text Channel">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="channel-list" id="channelList"></div>
+        </div>
+
+        <div class="channel-section" id="voiceChannelSection">
+          <div class="channel-section-header">
+            <span class="channel-section-title">VOICE CHANNELS</span>
+            <button type="button" class="add-channel-btn hidden" id="openCreateVoiceChannelBtn" title="Create Voice Channel">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="channel-list" id="voiceChannelList"></div>
+        </div>
+      </div>
+
+      <!-- Server Voice Connected Dock (shown when in a server voice channel) -->
+      <div class="server-voice-dock hidden" id="serverVoiceDock">
+        <div class="voice-dock-header">
+          <div class="voice-dock-status">
+            <span class="voice-dock-signal-icon" title="RTC Connected">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 3C6.48 3 2 7.48 2 13c0 3.12 1.44 5.9 3.7 7.74l1.3-1.52C5.3 17.76 4 15.54 4 13c0-4.41 3.59-8 8-8s8 3.59 8 8c0 2.54-1.3 4.76-3 6.22l1.3 1.52C20.56 18.9 22 16.12 22 13c0-5.52-4.48-10-10-10zm0 4c-3.31 0-6 2.69-6 6 0 1.95.94 3.69 2.41 4.79l1.32-1.54C8.87 15.6 8 14.4 8 13c0-2.21 1.79-4 4-4s4 1.79 4 4c0 1.4-.87 2.6-1.73 3.25l1.32 1.54C19.06 16.69 20 14.95 20 13c0-3.31-2.69-6-6-6zm0 5c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            </span>
+            <div class="voice-dock-info">
+              <span class="voice-dock-connected-label">Voice Connected</span>
+              <span class="voice-dock-channel-name" id="serverVoiceDockChannelName">Lounge</span>
+            </div>
+          </div>
+          <button type="button" class="voice-dock-disconnect-btn" id="serverVoiceDisconnectBtn" title="Disconnect">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+          </button>
+        </div>
+        <div class="voice-dock-controls">
+          <button type="button" class="voice-dock-btn" id="serverVoiceMuteBtn" title="Mute Mic">
+            <svg class="dock-unmuted-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+            <svg class="dock-muted-icon hidden" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c1.33-.19 2.53-.78 3.53-1.62l3.2 3.2 1.27-1.27L4.27 3z"/></svg>
+          </button>
+          <button type="button" class="voice-dock-btn" id="serverVoiceDeafenBtn" title="Deafen Audio">
+            <svg class="dock-undeafened-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1a7 7 0 0 1 14 0v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z"/></svg>
+            <svg class="dock-deafened-icon hidden" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M4.27 3L3 4.27l3.28 3.28C4.19 8.92 3 10.82 3 13v7c0 1.1.9 2 2 2h4v-8H5v-1c0-1.51.52-2.9 1.4-4L12 14.6V21h2v-4.4l4.73 4.73 1.27-1.27L4.27 3zM19 13v-1a7 7 0 0 0-11.83-5.11l1.45 1.45A4.97 4.97 0 0 1 19 12v1h-2v3.17l2 2V13z"/></svg>
+          </button>
+          <button type="button" class="voice-dock-btn" id="serverVoiceCameraBtn" title="Share Video">
+            <svg class="dock-cam-off-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27l4.78 4.78c-.46.25-.78.74-.78 1.3v9c0 .55.45 1 1 1h12c.38 0 .71-.15.96-.39l2.77 2.77L22 20.73 3.27 2zM16 17H5.27l10.73-10.73V17z"/></svg>
+            <svg class="dock-cam-on-icon hidden" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+          </button>
+          <button type="button" class="voice-dock-btn" id="serverVoiceScreenShareBtn" title="Share Screen">
+            <svg class="dock-screen-off-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5z"/></svg>
+            <svg class="dock-screen-on-icon hidden" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5zm6 8l5-3-5-3v6z"/></svg>
+          </button>
+          <button type="button" class="voice-dock-btn" id="serverVoiceOpenStageBtn" title="Open Voice Stage">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 2B. Friends Sidebar (Shown when viewing Friends) -->
+    <aside class="channel-sidebar hidden" id="friendsSidebar">
+      <div class="server-banner">
+        <h2 class="server-title-text">Friends Hub</h2>
+      </div>
+
+      <div class="friends-sidebar-nav">
+        <button type="button" class="friends-nav-btn active" id="friendsNavAllBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          <span>All Friends</span>
+          <span class="nav-count-badge" id="sidebarFriendsCount">0</span>
+        </button>
+
+        <button type="button" class="friends-nav-btn" id="friendsNavPendingBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>
+          <span>Pending</span>
+          <span class="nav-count-badge highlight hidden" id="sidebarPendingCount">0</span>
+        </button>
+
+        <button type="button" class="friends-nav-btn add-friend-tab" id="friendsNavAddBtn">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+          <span>Add Friend</span>
+        </button>
+      </div>
+
+      <!-- Direct Messages Section in Friends Sidebar -->
+      <div class="channel-section mt-15">
+        <div class="channel-section-header">
+          <span class="channel-section-title">DIRECT MESSAGES</span>
+        </div>
+        <div class="dm-friends-list" id="dmSidebarList">
+          <!-- Quick DM friends list -->
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Backdrop overlay for mobile / tablet drawer navigation -->
+  <div class="mobile-nav-backdrop hidden" id="mobileNavBackdrop"></div>
+
+    <!-- 3A. Server Chat Layout -->
+    <div class="app-layout" id="chatLayout">
+      <!-- Top Bar -->
+      <header class="chat-header">
+        <div class="header-left">
+          <button type="button" class="mobile-nav-toggle-btn" id="chatMobileNavBtn" title="Toggle navigation menu" aria-label="Toggle navigation menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+          </button>
+          <div class="channel-info">
+            <div class="channel-hash">#</div>
+            <div class="channel-name" id="activeChannelName">general</div>
+            <div class="channel-desc" id="activeChannelDesc">in General</div>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <div class="status-indicator" id="connectionStatus">
+            <span class="status-dot"></span>
+            <span class="status-text">Connecting...</span>
+          </div>
+
+          <!-- Community Feedback Button -->
+          <button type="button" class="top-feedback-btn" id="chatFeedbackBtn" title="Community Feedback">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+            </svg>
+            <span>Feedback</span>
+          </button>
+
+          <!-- Notification Center Bell Trigger -->
+          <button type="button" class="top-header-btn top-notif-btn" id="chatNotifBtn" title="Inbox & Notifications">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+            </svg>
+            <span class="notif-badge hidden" id="chatNotifBadge">0</span>
+          </button>
+
+          <!-- User Profile Capsule -->
+          <div class="user-capsule" id="userCapsule">
+            <div class="user-avatar-wrap" id="userAvatarWrap1">
+              <div class="user-avatar" id="currentUserAvatar">U</div>
+              <div class="user-status-badge status-online" id="currentUserStatusBadge" title="Online"></div>
+            </div>
+            <div class="user-meta">
+              <div class="user-display-row">
+                <span class="user-name" id="currentUserName">Loading...</span>
+                <span class="dev-badge hidden" id="currentUserDevBadge">DEV</span>
+              </div>
+              <span class="user-handle" id="currentUserHandle">@user</span>
+              <div class="user-capsule-custom-status hidden" id="currentUserCapsuleCustomStatus">
+                <span class="capsule-status-emoji"></span>
+                <span class="capsule-status-text"></span>
+              </div>
+            </div>
+            <button type="button" class="user-capsule-settings-btn" id="chatHeaderSettingsBtn" title="User Settings" aria-label="User Settings">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Message Stream -->
+      <main class="chat-messages" id="messagesContainer">
+        <div class="welcome-banner" id="welcomeBanner">
+          <div class="welcome-hash">#</div>
+          <h2 id="welcomeTitle">Welcome to #general!</h2>
+          <p id="welcomeDesc">This is the start of this channel. Messages here are saved safely in SQLite.</p>
+        </div>
+        <div id="messagesList"></div>
+      </main>
+
+      <!-- Bottom Input Bar -->
+      <footer class="chat-footer">
+        <div class="pending-attachment-bar hidden" id="pendingAttachmentBar">
+          <div class="pending-attachment-pill">
+            <span class="pending-file-icon">📎</span>
+            <span class="pending-file-name" id="pendingFileName">file.png</span>
+            <span class="pending-file-size" id="pendingFileSize">(0 B)</span>
+            <button type="button" class="remove-attachment-btn" id="removeAttachmentBtn" title="Remove file">✕</button>
+          </div>
+        </div>
+        <form id="chatForm" class="chat-form" autocomplete="off">
+          <div class="input-wrapper">
+            <button type="button" class="attach-file-btn" id="attachFileBtn" title="Attach file (Max 100MB)">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5V6H9v9.5a3 3 0 0 0 6 0V5C15 2.24 12.76 0 10 0S5 2.24 5 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
+              </svg>
+            </button>
+            <input type="file" id="fileInput" class="hidden" />
+            <input 
+              type="text" 
+              id="messageInput" 
+              placeholder="Message #general... (Press Enter to send)" 
+              maxlength="2000" 
+              autocomplete="off" 
+            />
+            <button type="button" class="chat-gif-btn" id="chatGifBtn" title="Open GIF Picker" aria-label="Open GIF Picker">
+              <span class="gif-btn-badge">GIF</span>
+            </button>
+            <button type="button" class="chat-emoji-btn" id="chatEmojiBtn" title="Select Emoji" aria-label="Select Emoji">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
+              </svg>
+            </button>
+            <button type="submit" id="sendBtn" title="Send message" aria-label="Send">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+      </footer>
+
+      <!-- Voice Stage View (shown when active in a voice channel) -->
+      <section class="voice-stage-layout hidden" id="voiceStageLayout">
+        <div class="voice-stage-header">
+          <div class="voice-stage-channel-info">
+            <span class="voice-stage-icon">🔊</span>
+            <div class="voice-stage-titles">
+              <h2 id="voiceStageChannelName">Lounge</h2>
+              <span class="voice-stage-participant-count" id="voiceStageCount">0 Connected</span>
+            </div>
+          </div>
+          <div class="voice-stage-header-actions">
+            <button type="button" class="voice-stage-top-btn" id="voiceStageToggleChatBtn" title="Toggle Channel Text Chat">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+              <span>Chat</span>
+            </button>
+            <button type="button" class="voice-stage-disconnect-btn" id="voiceStageDisconnectBtn" title="Disconnect from Voice">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+              <span>Disconnect</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="voice-stage-grid" id="voiceStageGrid">
+          <!-- Voice participant cards rendered dynamically -->
+        </div>
+
+        <div class="voice-stage-controls">
+          <button type="button" class="stage-control-btn" id="stageMuteBtn" title="Mute Microphone">
+            <svg class="stage-unmuted-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+            <svg class="stage-muted-icon hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c1.33-.19 2.53-.78 3.53-1.62l3.2 3.2 1.27-1.27L4.27 3z"/></svg>
+            <span>Mute</span>
+          </button>
+          <button type="button" class="stage-control-btn" id="stageDeafenBtn" title="Deafen Audio">
+            <svg class="stage-undeafened-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1a7 7 0 0 1 14 0v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z"/></svg>
+            <svg class="stage-deafened-icon hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M4.27 3L3 4.27l3.28 3.28C4.19 8.92 3 10.82 3 13v7c0 1.1.9 2 2 2h4v-8H5v-1c0-1.51.52-2.9 1.4-4L12 14.6V21h2v-4.4l4.73 4.73 1.27-1.27L4.27 3zM19 13v-1a7 7 0 0 0-11.83-5.11l1.45 1.45A4.97 4.97 0 0 1 19 12v1h-2v3.17l2 2V13z"/></svg>
+            <span>Deafen</span>
+          </button>
+          <button type="button" class="stage-control-btn" id="stageCameraBtn" title="Share Camera">
+            <svg class="stage-cam-off-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27l4.78 4.78c-.46.25-.78.74-.78 1.3v9c0 .55.45 1 1 1h12c.38 0 .71-.15.96-.39l2.77 2.77L22 20.73 3.27 2zM16 17H5.27l10.73-10.73V17z"/></svg>
+            <svg class="stage-cam-on-icon hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+            <span>Camera</span>
+          </button>
+          <button type="button" class="stage-control-btn" id="stageScreenBtn" title="Share Screen">
+            <svg class="stage-screen-off-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5z"/></svg>
+            <svg class="stage-screen-on-icon hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5zm6 8l5-3-5-3v6z"/></svg>
+            <span>Share Screen</span>
+          </button>
+          <button type="button" class="stage-control-btn disconnect-stage-btn" id="stageLeaveBtn" title="Leave Voice Channel">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+            <span>Disconnect</span>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <!-- 3B. Friends Manager Layout -->
+    <div class="app-layout hidden" id="friendsLayout">
+      <header class="chat-header">
+        <div class="header-left">
+          <button type="button" class="mobile-nav-toggle-btn" id="friendsMobileNavBtn" title="Toggle navigation menu" aria-label="Toggle navigation menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+          </button>
+          <div class="friends-header-title">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            <span>Friends</span>
+          </div>
+          <div class="friends-header-tabs">
+            <button type="button" class="f-tab-btn active" id="fTabAllBtn">All</button>
+            <button type="button" class="f-tab-btn" id="fTabPendingBtn">Pending</button>
+            <button type="button" class="f-tab-btn add-btn" id="fTabAddBtn">Add Friend</button>
+          </div>
+        </div>
+
+        <div class="header-right">
+          <!-- Community Feedback Button -->
+          <button type="button" class="top-feedback-btn" id="friendsFeedbackBtn" title="Community Feedback">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+            </svg>
+            <span>Feedback</span>
+          </button>
+
+          <!-- Notification Center Bell Trigger -->
+          <button type="button" class="top-header-btn top-notif-btn" id="friendsNotifBtn" title="Inbox & Notifications">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+            </svg>
+            <span class="notif-badge hidden" id="friendsNotifBadge">0</span>
+          </button>
+
+          <!-- User Profile Capsule repeated in Friends layout header -->
+          <div class="user-capsule" id="friendsUserCapsule" title="Click to change status or profile">
+            <div class="user-avatar-wrap" id="userAvatarWrap2">
+              <div class="user-avatar" id="currentUserAvatar2">U</div>
+              <div class="user-status-badge status-online" id="currentUserStatusBadge2" title="Online"></div>
+            </div>
+            <div class="user-meta">
+              <div class="user-display-row">
+                <span class="user-name" id="currentUserName2">Loading...</span>
+                <span class="dev-badge hidden" id="currentUserDevBadge2">DEV</span>
+              </div>
+              <span class="user-handle" id="currentUserHandle2">@user</span>
+              <div class="user-capsule-custom-status hidden" id="currentUserCapsuleCustomStatus2">
+                <span class="capsule-status-emoji"></span>
+                <span class="capsule-status-text"></span>
+              </div>
+            </div>
+            <button type="button" class="user-capsule-settings-btn" id="friendsHeaderSettingsBtn" title="User Settings" aria-label="User Settings">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="friends-main-content">
+        <!-- Tab 1: All Friends List -->
+        <section class="friends-section" id="viewAllFriends">
+          <div class="section-title-bar">
+            <span class="section-title-label">ALL FRIENDS — <span id="allFriendsCountText">0</span></span>
+          </div>
+          <div class="friends-cards-list" id="allFriendsList">
+            <!-- Friend cards injected here -->
+          </div>
+        </section>
+
+        <!-- Tab 2: Pending Requests -->
+        <section class="friends-section hidden" id="viewPendingFriends">
+          <div class="section-title-bar">
+            <span class="section-title-label">INCOMING REQUESTS — <span id="pendingIncomingCountText">0</span></span>
+          </div>
+          <div class="friends-cards-list" id="pendingIncomingList">
+            <!-- Incoming requests injected here -->
+          </div>
+
+          <div class="section-title-bar mt-20">
+            <span class="section-title-label">OUTGOING REQUESTS — <span id="pendingOutgoingCountText">0</span></span>
+          </div>
+          <div class="friends-cards-list" id="pendingOutgoingList">
+            <!-- Outgoing requests injected here -->
+          </div>
+        </section>
+
+        <!-- Tab 3: Add Friend Form -->
+        <section class="friends-section hidden" id="viewAddFriend">
+          <div class="add-friend-box">
+            <h2>ADD FRIEND</h2>
+            <p>You can add friends with their Voiceline username.</p>
+            <form id="addFriendForm" class="add-friend-form" autocomplete="off">
+              <div class="add-friend-input-wrapper">
+                <input type="text" id="addFriendInput" placeholder="Enter a username" required maxlength="32" />
+                <button type="submit" class="primary-btn add-friend-submit-btn">Send Friend Request</button>
+              </div>
+            </form>
+            <div class="add-friend-alert hidden" id="addFriendAlert"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- 3C. Direct Message Chat Layout -->
+    <div class="app-layout hidden" id="dmLayout">
+      <!-- Top Bar -->
+      <header class="chat-header">
+        <div class="header-left">
+          <button type="button" class="mobile-nav-toggle-btn" id="dmMobileNavBtn" title="Toggle navigation menu" aria-label="Toggle navigation menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+          </button>
+          <div class="dm-header-friend-info" id="dmHeaderFriendInfo" title="Click to view friend's profile">
+            <div class="user-avatar dm-header-avatar" id="dmHeaderAvatar">U</div>
+            <div class="channel-info">
+              <div class="user-display-row">
+                <div class="channel-name" id="dmActiveFriendName">Friend</div>
+                <span class="dev-badge hidden" id="dmFriendDevBadge">DEV</span>
+              </div>
+              <div class="channel-desc" id="dmActiveFriendUsername">@friend</div>
+            </div>
+          </div>
+          <button type="button" class="dm-call-btn" id="dmStartCallBtn" title="Start voice call with friend">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-1-1z"/>
+            </svg>
+            <span>Start Call</span>
+          </button>
+          <button type="button" class="dm-call-btn dm-screen-btn" id="dmStartScreenShareBtn" title="Share your screen with friend">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5z"/>
+            </svg>
+            <span>Share Screen</span>
+          </button>
+        </div>
+
+        <div class="header-right">
+          <div class="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">Direct Message</span>
+          </div>
+
+          <!-- Community Feedback Button -->
+          <button type="button" class="top-feedback-btn" id="dmFeedbackBtn" title="Community Feedback">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+            </svg>
+            <span>Feedback</span>
+          </button>
+
+          <!-- Notification Center Bell Trigger -->
+          <button type="button" class="top-header-btn top-notif-btn" id="dmNotifBtn" title="Inbox & Notifications">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+            </svg>
+            <span class="notif-badge hidden" id="dmNotifBadge">0</span>
+          </button>
+
+          <!-- User Profile Capsule -->
+          <div class="user-capsule" id="dmUserCapsule" title="Click to change status or profile">
+            <div class="user-avatar-wrap" id="userAvatarWrap3">
+              <div class="user-avatar" id="currentUserAvatar3">U</div>
+              <div class="user-status-badge status-online" id="currentUserStatusBadge3" title="Online"></div>
+            </div>
+            <div class="user-meta">
+              <div class="user-display-row">
+                <span class="user-name" id="currentUserName3">Loading...</span>
+                <span class="dev-badge hidden" id="currentUserDevBadge3">DEV</span>
+              </div>
+              <span class="user-handle" id="currentUserHandle3">@user</span>
+              <div class="user-capsule-custom-status hidden" id="currentUserCapsuleCustomStatus3">
+                <span class="capsule-status-emoji"></span>
+                <span class="capsule-status-text"></span>
+              </div>
+            </div>
+            <button type="button" class="user-capsule-settings-btn" id="dmHeaderSettingsBtn" title="User Settings" aria-label="User Settings">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Message Stream -->
+      <main class="chat-messages" id="dmMessagesContainer">
+        <div class="welcome-banner" id="dmWelcomeBanner">
+          <div class="welcome-hash">@</div>
+          <h2 id="dmWelcomeTitle">Friend Name</h2>
+          <p id="dmWelcomeDesc">This is the start of your direct message history with this friend.</p>
+        </div>
+        <div id="dmMessagesList"></div>
+      </main>
+
+      <!-- Bottom Input Bar -->
+      <footer class="chat-footer">
+        <div class="pending-attachment-bar hidden" id="dmPendingAttachmentBar">
+          <div class="pending-attachment-pill">
+            <span class="pending-file-icon">📎</span>
+            <span class="pending-file-name" id="dmPendingFileName">file.png</span>
+            <span class="pending-file-size" id="dmPendingFileSize">(0 B)</span>
+            <button type="button" class="remove-attachment-btn" id="dmRemoveAttachmentBtn" title="Remove file">✕</button>
+          </div>
+        </div>
+        <form id="dmChatForm" class="chat-form" autocomplete="off">
+          <div class="input-wrapper">
+            <button type="button" class="attach-file-btn" id="dmAttachFileBtn" title="Attach file (Max 100MB)">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .83-.67 1.5-1.5 1.5s-1.5-.67-1.5-1.5V6H9v9.5a3 3 0 0 0 6 0V5C15 2.24 12.76 0 10 0S5 2.24 5 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/>
+              </svg>
+            </button>
+            <input type="file" id="dmFileInput" class="hidden" />
+            <input 
+              type="text" 
+              id="dmMessageInput" 
+              placeholder="Message friend... (Press Enter to send)" 
+              maxlength="2000" 
+              autocomplete="off" 
+            />
+            <button type="button" class="chat-gif-btn" id="dmChatGifBtn" title="Open GIF Picker" aria-label="Open GIF Picker">
+              <span class="gif-btn-badge">GIF</span>
+            </button>
+            <button type="button" class="chat-emoji-btn" id="dmChatEmojiBtn" title="Select Emoji" aria-label="Select Emoji">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
+              </svg>
+            </button>
+            <button type="submit" id="dmSendBtn" title="Send message" aria-label="Send">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+      </footer>
+    </div>
+  </div>
+  </div>
+
+  <!-- Discord-Style Emoji Picker Popover -->
+  <div class="emoji-picker-popover hidden" id="emojiPickerPopover" role="dialog" aria-label="Emoji Picker">
+    <!-- Header / Search -->
+    <div class="emoji-picker-header">
+      <div class="emoji-search-box">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" class="emoji-search-icon">
+          <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+        </svg>
+        <input type="text" id="emojiSearchInput" placeholder="Search emojis..." autocomplete="off" />
+        <button type="button" class="emoji-search-clear-btn hidden" id="emojiSearchClearBtn" title="Clear search">✕</button>
+      </div>
+    </div>
+
+    <!-- Category Navigation Bar -->
+    <nav class="emoji-category-nav" id="emojiCategoryNav" aria-label="Emoji Categories">
+      <button type="button" class="emoji-cat-nav-btn active" data-category="recent" title="Recently Used">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="smileys" title="Smileys & Emotion">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="people" title="People & Body">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="nature" title="Animals & Nature">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.5 2 2 6.5 2 12c0 3.58 2.5 6.58 5.9 7.6V22h8.2v-2.4c3.4-1.02 5.9-4.02 5.9-7.6 0-5.5-4.5-10-10-10zm-2 15h-2v-2h2v2zm0-4h-2V9h2v4zm6 4h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="food" title="Food & Drink">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="activities" title="Activities & Gaming">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm3-3c-.83 0-1.5-.67-1.5-1.5S17.67 9 18.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="travel" title="Travel & Places">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="objects" title="Objects & Symbols">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg>
+      </button>
+      <button type="button" class="emoji-cat-nav-btn" data-category="flags" title="Flags">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>
+      </button>
+    </nav>
+
+    <!-- Scrollable Emoji Sections -->
+    <div class="emoji-scroll-area" id="emojiScrollArea">
+      <!-- Injected dynamically via JS: Categories with sticky headers & emoji grids -->
+    </div>
+
+    <!-- Footer Preview Bar -->
+    <div class="emoji-picker-footer" id="emojiPickerFooter">
+      <div class="emoji-preview-box">
+        <span class="emoji-preview-icon" id="emojiPreviewIcon">😃</span>
+        <div class="emoji-preview-meta">
+          <span class="emoji-preview-name" id="emojiPreviewName">:grinning:</span>
+          <span class="emoji-preview-hint">Click to insert</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Discord-Style GIPHY GIF Picker Popover -->
+  <div class="gif-picker-popover hidden" id="gifPickerPopover" role="dialog" aria-label="GIF Picker">
+    <!-- Header / Search -->
+    <div class="gif-picker-header">
+      <div class="gif-search-box">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" class="gif-search-icon">
+          <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+        </svg>
+        <input type="text" id="gifSearchInput" placeholder="Search GIPHY..." autocomplete="off" />
+        <button type="button" class="gif-search-clear-btn hidden" id="gifSearchClearBtn" title="Clear search">✕</button>
+      </div>
+
+      <!-- Quick Category Pills -->
+      <div class="gif-category-pills" id="gifCategoryPills">
+        <button type="button" class="gif-pill-btn" data-query="favorites" id="gifFavoritesPill">⭐ Favorites</button>
+        <button type="button" class="gif-pill-btn active" data-query="trending">🔥 Trending</button>
+        <button type="button" class="gif-pill-btn" data-query="excited">🎉 Excited</button>
+        <button type="button" class="gif-pill-btn" data-query="lol">😂 LOL</button>
+        <button type="button" class="gif-pill-btn" data-query="sad">😢 Sad</button>
+        <button type="button" class="gif-pill-btn" data-query="dance">💃 Dance</button>
+        <button type="button" class="gif-pill-btn" data-query="love">❤️ Love</button>
+        <button type="button" class="gif-pill-btn" data-query="gg">🏆 GG</button>
+        <button type="button" class="gif-pill-btn" data-query="facepalm">🤦 Facepalm</button>
+        <button type="button" class="gif-pill-btn" data-query="cats">🐱 Cats</button>
+        <button type="button" class="gif-pill-btn" data-query="anime">✨ Anime</button>
+        <button type="button" class="gif-pill-btn" data-query="bye">👋 Bye</button>
+      </div>
+    </div>
+
+    <!-- Main GIF Scroll Grid -->
+    <div class="gif-scroll-area" id="gifScrollArea">
+      <div class="gif-grid" id="gifGrid">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="gif-loading-indicator hidden" id="gifLoadingIndicator">
+        <div class="spinner"></div>
+        <span>Searching GIPHY...</span>
+      </div>
+      <div class="gif-empty-state hidden" id="gifEmptyState">
+        <span class="gif-empty-icon">🔍</span>
+        <span class="gif-empty-title">No GIFs found</span>
+        <span class="gif-empty-sub">Try searching something else</span>
+      </div>
+    </div>
+
+    <!-- Footer Attribution Bar -->
+    <div class="gif-picker-footer">
+      <div class="giphy-brand-badge">
+        <span class="giphy-logo-icon">⚡</span>
+        <span class="giphy-logo-text">Powered by <strong>GIPHY</strong></span>
+      </div>
+      <span class="gif-click-hint">Click a GIF to send instantly</span>
+    </div>
+  </div>
+
+  <!-- Pre-Shutdown Storage Check Modal (Developer Only) -->
+  <div class="modal-overlay hidden" id="shutdownConfirmModalOverlay">
+    <div class="modal-card storage-modal-card">
+      <div class="modal-header">
+        <h2>Confirm Server Shutdown</h2>
+        <p>Review current storage breakdown before turning off the host server.</p>
+      </div>
+      <div class="storage-stats-container">
+        <div class="storage-stats-loading" id="shutdownStorageLoading">
+          <div class="spinner"></div>
+          <span>Calculating host storage usage...</span>
+        </div>
+        <div class="storage-breakdown hidden" id="shutdownStorageBreakdown">
+          <div class="storage-stat-card">
+            <div class="storage-stat-header">
+              <div class="storage-stat-title-wrap">
+                <span class="storage-stat-icon">🗄️</span>
+                <div>
+                  <div class="storage-stat-title">Database Storage</div>
+                  <div class="storage-stat-sub">SQLite database file (voiceline.db)</div>
+                </div>
+              </div>
+              <span class="storage-stat-val" id="storageDbSize">--</span>
+            </div>
+          </div>
+
+          <div class="storage-stat-card">
+            <div class="storage-stat-header">
+              <div class="storage-stat-title-wrap">
+                <span class="storage-stat-icon">📁</span>
+                <div>
+                  <div class="storage-stat-title">Uploaded Files & Media</div>
+                  <div class="storage-stat-sub">Attachments & user profile pictures</div>
+                </div>
+              </div>
+              <span class="storage-stat-val" id="storageUploadsSize">--</span>
+            </div>
+          </div>
+
+          <div class="storage-total-card">
+            <div class="storage-total-label">
+              <span class="storage-stat-icon">💾</span>
+              <div>
+                <div class="storage-total-title">Total Disk Storage Used</div>
+                <div class="storage-total-sub">Combined footprint on host PC</div>
+              </div>
+            </div>
+            <div class="storage-total-val" id="storageTotalSize">--</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions mt-20">
+        <button type="button" class="secondary-btn" id="cancelShutdownBtn">Cancel</button>
+        <button type="button" class="danger-btn shutdown-confirm-btn" id="confirmShutdownBtn">Turn Off Server</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Server Shutdown Notification Overlay -->
+  <div class="shutdown-modal-overlay hidden" id="shutdownNoticeOverlay">
+    <div class="shutdown-modal">
+      <div class="shutdown-icon">🛑</div>
+      <h2>Server Has Been Stopped</h2>
+      <p id="shutdownNoticeMessage">The host turned off the server. All chat history has been safely recorded in SQLite.</p>
+      <div class="shutdown-hint">To restart, run <code>start.bat</code> on the host PC and refresh this page.</div>
+    </div>
+  </div>
+
+  <!-- Incoming Call Modal -->
+  <div class="modal-overlay hidden" id="incomingCallModalOverlay">
+    <div class="modal-card incoming-call-card">
+      <div class="incoming-call-pulse-ring">
+        <div class="user-avatar incoming-call-avatar" id="incomingCallAvatar">U</div>
+      </div>
+      <h2 class="incoming-call-title" id="incomingCallName">Friend Name</h2>
+      <p class="incoming-call-handle" id="incomingCallHandle">@friend</p>
+      <p class="incoming-call-subtitle">Incoming Voice Call...</p>
+      <div class="incoming-call-actions">
+        <button type="button" class="btn-decline-call" id="declineCallBtn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+          <span>Decline</span>
+        </button>
+        <button type="button" class="btn-accept-call" id="acceptCallBtn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.053 15.053 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1A11.36 11.36 0 0 1 8.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-1-1z"/>
+          </svg>
+          <span>Accept</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Voice Call Floating Widget -->
+  <div class="active-call-widget hidden" id="activeCallWidget">
+    <div class="call-widget-content">
+      <div class="call-widget-user">
+        <div class="call-widget-avatar-wrapper">
+          <div class="user-avatar call-widget-avatar" id="callPartnerAvatar">U</div>
+          <span class="call-pulse-dot" id="callPulseDot"></span>
+        </div>
+        <div class="call-widget-info">
+          <span class="call-partner-name" id="callPartnerName">Friend</span>
+          <div class="call-status-row">
+            <span class="call-status-text" id="callStatusText">Connecting...</span>
+            <span class="call-timer-text" id="callTimerText">00:00</span>
+          </div>
+        </div>
+      </div>
+      <div class="call-widget-actions">
+        <button type="button" class="call-action-btn mute-btn" id="callMuteBtn" title="Mute Microphone">
+          <svg id="micIconUnmuted" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <svg id="micIconMuted" class="hidden" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c1.33-.19 2.53-.78 3.53-1.62l3.2 3.2 1.27-1.27L4.27 3z"/>
+          </svg>
+          <span id="callMuteBtnLabel">Mute</span>
+        </button>
+        <button type="button" class="call-action-btn camera-btn" id="callCameraBtn" title="Toggle Camera">
+          <svg id="cameraIconOff" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27l4.78 4.78c-.46.25-.78.74-.78 1.3v9c0 .55.45 1 1 1h12c.38 0 .71-.15.96-.39l2.77 2.77L22 20.73 3.27 2zM16 17H5.27l10.73-10.73V17z"/>
+          </svg>
+          <svg id="cameraIconOn" class="hidden" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+          </svg>
+          <span id="callCameraBtnLabel">Camera</span>
+        </button>
+        <button type="button" class="call-action-btn screen-share-btn" id="callScreenShareBtn" title="Share Screen">
+          <svg id="callScreenShareIconOff" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5z"/>
+          </svg>
+          <svg id="callScreenShareIconOn" class="hidden" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5zm6 8l5-3-5-3v6z"/>
+          </svg>
+          <span id="callScreenShareBtnLabel">Screen</span>
+        </button>
+        <button type="button" class="call-action-btn expand-btn" id="callExpandTheaterBtn" title="Expand Video View">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+          </svg>
+        </button>
+        <button type="button" class="call-action-btn hangup-btn" id="callHangupBtn" title="End Call">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+          <span>End Call</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Video Call Theater Screen / Modal -->
+  <div class="modal-overlay hidden" id="activeCallTheaterOverlay">
+    <div class="video-theater-card">
+      <!-- Theater Header -->
+      <div class="video-theater-header">
+        <div class="theater-user-meta">
+          <span class="theater-partner-name" id="theaterPartnerName">Friend</span>
+          <span class="theater-partner-handle" id="theaterPartnerHandle">@friend</span>
+          <span class="theater-status-badge" id="theaterStatusBadge">Connected</span>
+          <span class="theater-timer" id="theaterTimerText">00:00</span>
+        </div>
+        <div class="theater-header-actions">
+          <button type="button" class="theater-icon-btn" id="theaterMinimizeBtn" title="Minimize to dock">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-14v3h3v2h-5V5h2z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Theater Stage -->
+      <div class="video-theater-stage">
+        <!-- Screen Sharing Active Indicator Badge -->
+        <div class="theater-screen-badge hidden" id="theaterScreenBadge">
+          <span class="screen-badge-icon">🖥️</span>
+          <span class="screen-badge-text" id="theaterScreenBadgeText">Friend's Screen</span>
+          <button type="button" class="screen-fit-btn" id="theaterScreenFitBtn" title="Toggle Aspect Fit / Fill">Aspect: Fit</button>
+        </div>
+
+        <!-- Main Remote Feed -->
+        <div class="remote-video-container">
+          <video id="remoteVideoFeed" class="remote-video-el hidden" autoplay playsinline muted></video>
+          <div class="remote-cam-off-state" id="remoteCameraOffState">
+            <div class="user-avatar theater-avatar" id="theaterPartnerAvatar">U</div>
+            <h3 class="theater-cam-off-title" id="theaterCamOffTitle">Friend</h3>
+            <p class="theater-cam-off-sub" id="theaterCamOffSub">Camera is off</p>
+          </div>
+        </div>
+
+        <!-- Self-View Picture-in-Picture (PiP) -->
+        <div class="self-pip-container" id="selfPipContainer" title="Your preview">
+          <video id="localVideoFeed" class="local-video-el hidden" autoplay playsinline muted></video>
+          <div class="self-pip-off-state" id="selfCameraOffState">
+            <div class="user-avatar self-pip-avatar" id="selfPipAvatar">U</div>
+            <span class="self-pip-label">Your camera is off</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Theater Control Bar -->
+      <div class="video-theater-controls">
+        <button type="button" class="theater-control-btn mute-btn" id="theaterMuteBtn" title="Mute Microphone">
+          <svg id="theaterMicIconUnmuted" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <svg id="theaterMicIconMuted" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c1.33-.19 2.53-.78 3.53-1.62l3.2 3.2 1.27-1.27L4.27 3z"/>
+          </svg>
+          <span id="theaterMuteBtnLabel">Mute</span>
+        </button>
+
+        <button type="button" class="theater-control-btn camera-btn" id="theaterCameraBtn" title="Toggle Camera">
+          <svg id="theaterCameraIconOff" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27l4.78 4.78c-.46.25-.78.74-.78 1.3v9c0 .55.45 1 1 1h12c.38 0 .71-.15.96-.39l2.77 2.77L22 20.73 3.27 2zM16 17H5.27l10.73-10.73V17z"/>
+          </svg>
+          <svg id="theaterCameraIconOn" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+          </svg>
+          <span id="theaterCameraBtnLabel">Turn On Camera</span>
+        </button>
+
+        <button type="button" class="theater-control-btn screen-share-btn" id="theaterScreenShareBtn" title="Share Screen">
+          <svg id="theaterScreenShareIconOff" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5z"/>
+          </svg>
+          <svg id="theaterScreenShareIconOn" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2H0c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2h-4zM4 5h16v11H4V5zm6 8l5-3-5-3v6z"/>
+          </svg>
+          <span id="theaterScreenShareBtnLabel">Share Screen</span>
+        </button>
+
+        <button type="button" class="theater-control-btn hangup-btn" id="theaterHangupBtn" title="End Call">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.99.99 0 0 1 0-1.41C3.27 8.84 7.39 7 12 7c4.61 0 8.73 1.84 11.71 4.67.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+          </svg>
+          <span>End Call</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nitro Easter Egg Offer Modal -->
+  <div class="modal-overlay hidden" id="easterEggOfferModalOverlay">
+    <div class="modal-card easter-egg-modal-card">
+      <div class="easter-egg-header">
+        <div class="easter-egg-badge">
+          <span class="easter-egg-badge-icon">🎁</span>
+          <span>Voiceline Nitro Rewards</span>
+        </div>
+        <button type="button" class="modal-close-x" id="closeEasterEggBtn" title="Close (ESC)">&times;</button>
+      </div>
+      <div class="easter-egg-body">
+        <div class="easter-egg-icon-large">🥳</div>
+        <div class="easter-egg-quote-box">
+          <p class="easter-egg-quote-text">"It's just a joke! This project is made to let people customize and express themself without any paywall. literally. no paywalls for now and ever. i hate josh hill dw -rsl"</p>
+        </div>
+        <p class="easter-egg-subtext">Voiceline is completely free and unpaywalled. All themes, stickers, sounds, and customizations are yours to enjoy without paying a single cent.</p>
+      </div>
+      <div class="modal-actions mt-20">
+        <button type="button" class="primary-btn btn-full" id="dismissEasterEggBtn">Keep Chatting</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Community Feedback Forum & Composer Modal -->
+  <div class="modal-overlay hidden" id="feedbackModalOverlay">
+    <div class="modal-card feedback-forum-modal-card">
+      <div class="feedback-forum-header">
+        <div class="feedback-header-left">
+          <div class="feedback-title-row">
+            <span class="feedback-header-icon">💬</span>
+            <div>
+              <h2>Community Feedback & Ideas</h2>
+              <p>Share suggestions, feature requests, or browse community feedback.</p>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="modal-close-x" id="closeFeedbackModalBtn" title="Close (ESC)">&times;</button>
+      </div>
+
+      <!-- Feedback Composer -->
+      <div class="feedback-composer-card">
+        <div class="feedback-composer-label">SUBMIT YOUR FEEDBACK</div>
+        <form id="feedbackForm" autocomplete="off">
+          <textarea 
+            id="feedbackContentInput" 
+            class="feedback-textarea" 
+            placeholder="Have an idea for a new feature? Found something we could improve? Write your feedback here..." 
+            maxlength="2000" 
+            rows="3" 
+            required
+          ></textarea>
+          <div class="feedback-composer-bottom">
+            <div class="feedback-char-count"><span id="feedbackCharCount">0</span>/2000</div>
+            <button type="submit" class="feedback-submit-btn" id="submitFeedbackBtn">
+              <span class="submit-btn-text">Submit Feedback</span>
+              <span class="submit-btn-spinner hidden" id="feedbackSubmitSpinner"></span>
+            </button>
+          </div>
+        </form>
+        <div class="auth-error mt-10 hidden" id="feedbackSubmitError"></div>
+        <div class="feedback-submit-success hidden" id="feedbackSubmitSuccess">
+          ✓ Feedback submitted! Thank you for helping improve Voiceline.
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="feedback-filter-bar">
+        <div class="feedback-filter-chips">
+          <button type="button" class="feedback-filter-chip active" data-filter="all">All (<span id="feedbackCountAll">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="pending">🟡 Pending (<span id="feedbackCountPending">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="considering">🟠 Considering (<span id="feedbackCountConsidering">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="accepted">🟢 Accepted (<span id="feedbackCountAccepted">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="denied">🔴 Denied (<span id="feedbackCountDenied">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="accepted_already_exists">✨ Accepted & Exists (<span id="feedbackCountAcceptedAlreadyExists">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="already_exists">💡 Already Exists (<span id="feedbackCountAlreadyExists">0</span>)</button>
+        </div>
+        <button type="button" class="feedback-refresh-btn" id="refreshFeedbackBtn" title="Refresh Feedback">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Feedback List Scroll Container -->
+      <div class="feedback-list-scroll" id="feedbackListScroll">
+        <div class="feedback-list" id="feedbackItemsList"></div>
+        <div class="feedback-empty-state hidden" id="feedbackEmptyState">
+          <div class="empty-state-icon">💡</div>
+          <h3>No feedback submissions yet</h3>
+          <p>Be the first to share your ideas using the composer above!</p>
+        </div>
+        <div class="feedback-loading-state" id="feedbackLoadingState">
+          <div class="feedback-spinner"></div>
+          <span>Loading community feedback...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Center Dropdown / Popover (Stage 3d.5) -->
+  <div class="notif-panel-overlay hidden" id="notifPanelOverlay">
+    <div class="notif-panel-card" id="notifPanelCard" role="dialog" aria-labelledby="notifPanelTitle">
+      <!-- Panel Header -->
+      <div class="notif-panel-header">
+        <div class="notif-panel-title-wrap">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" class="notif-header-icon">
+            <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+          </svg>
+          <h3 id="notifPanelTitle" class="notif-panel-title">Inbox</h3>
+          <span class="notif-unread-count-pill hidden" id="notifPanelUnreadPill">0 unread</span>
+        </div>
+        <div class="notif-header-actions">
+          <button type="button" class="notif-icon-action-btn" id="notifMarkAllReadBtn" title="Mark all as read">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>
+            </svg>
+          </button>
+          <button type="button" class="notif-icon-action-btn notif-clear-btn" id="notifClearAllBtn" title="Clear all notifications">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+            </svg>
+          </button>
+          <button type="button" class="notif-icon-action-btn" id="notifSettingsBtn" title="Notification Settings">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+            </svg>
+          </button>
+          <button type="button" class="notif-close-x" id="closeNotifPanelBtn" title="Close (ESC)">&times;</button>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="notif-filter-bar">
+        <button type="button" class="notif-filter-tab active" data-filter="all">All</button>
+        <button type="button" class="notif-filter-tab" data-filter="unread">Unread</button>
+        <button type="button" class="notif-filter-tab" data-filter="mentions">@ Mentions</button>
+        <button type="button" class="notif-filter-tab" data-filter="dms">DMs</button>
+        <button type="button" class="notif-filter-tab" data-filter="friends">Friends</button>
+        <button type="button" class="notif-filter-tab" data-filter="system">Calls & System</button>
+      </div>
+
+      <!-- Scrollable Notifications List Container -->
+      <div class="notif-items-scroll" id="notifItemsScroll">
+        <div class="notif-items-list" id="notifItemsList"></div>
+        <div class="notif-empty-state hidden" id="notifEmptyState">
+          <div class="notif-empty-icon">🔔</div>
+          <h4 class="notif-empty-title">All caught up!</h4>
+          <p class="notif-empty-desc">You don't have any notifications right now.</p>
+        </div>
+        <div class="notif-loading-state hidden" id="notifLoadingState">
+          <div class="notif-spinner"></div>
+          <span>Loading notifications...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Status Menu Popout (Discord-style Account Popout - Stage 3d.6) -->
+  <div class="status-menu-popout hidden" id="userStatusMenuPopout" role="menu">
+    <div class="status-popout-user-card">
+      <div class="status-popout-avatar-wrap">
+        <div class="user-avatar" id="statusPopoutAvatar">U</div>
+        <div class="user-status-badge status-online" id="statusPopoutBadge"></div>
+      </div>
+      <div class="status-popout-user-info">
+        <div class="status-popout-name" id="statusPopoutDisplayName">User</div>
+        <div class="status-popout-handle" id="statusPopoutHandle">@user</div>
+      </div>
+      <button type="button" class="status-popout-gear-btn" id="statusPopoutGearBtn" title="User Settings" aria-label="User Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Custom Status Trigger / Display in Popout -->
+    <div class="status-popout-custom-row" id="statusPopoutCustomRow">
+      <button type="button" class="status-popout-custom-btn" id="statusPopoutSetCustomBtn">
+        <span class="custom-status-popout-icon" id="statusPopoutCustomEmoji">💭</span>
+        <span class="custom-status-popout-text" id="statusPopoutCustomText">Set a custom status</span>
+      </button>
+      <button type="button" class="status-popout-clear-custom-btn hidden" id="statusPopoutClearCustomBtn" title="Clear custom status">&times;</button>
+    </div>
+
+    <div class="status-popout-divider"></div>
+
+    <!-- Status Choices List -->
+    <div class="status-popout-options">
+      <button type="button" class="status-popout-item" data-status="online" id="statusChoiceOnline">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-online"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Online</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckOnline">✓</span>
+      </button>
+
+      <button type="button" class="status-popout-item" data-status="idle" id="statusChoiceIdle">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-idle"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Idle</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckIdle">✓</span>
+      </button>
+
+      <button type="button" class="status-popout-item" data-status="dnd" id="statusChoiceDnd">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-dnd"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Do Not Disturb</span>
+            <span class="status-popout-item-sub">Mute casual notifications</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckDnd">✓</span>
+      </button>
+
+      <button type="button" class="status-popout-item" data-status="invisible" id="statusChoiceInvisible">
+        <div class="status-popout-item-left">
+          <span class="status-choice-dot status-offline"></span>
+          <div class="status-popout-item-meta">
+            <span class="status-popout-item-title">Invisible</span>
+            <span class="status-popout-item-sub">Appear offline to everyone</span>
+          </div>
+        </div>
+        <span class="status-popout-check hidden" id="statusCheckInvisible">✓</span>
+      </button>
+    </div>
+
+    <div class="status-popout-divider"></div>
+
+    <!-- Switch Account / Profile Settings Shortcut -->
+    <div class="status-popout-footer">
+      <button type="button" class="status-popout-footer-btn" id="statusPopoutOpenProfileBtn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+        </svg>
+        <span>Edit Profile</span>
+      </button>
+      <button type="button" class="status-popout-footer-btn" id="statusPopoutOpenSettingsBtn" title="Settings">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+          <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+        </svg>
+        <span>Settings</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Custom Status Modal Overlay (Stage 3d.6) -->
+  <div class="modal-overlay hidden" id="customStatusModalOverlay">
+    <div class="modal-card custom-status-modal-card" id="customStatusModalCard">
+      <div class="modal-header">
+        <div>
+          <h2>Set a custom status</h2>
+          <p>Share what you are up to with your friends.</p>
+        </div>
+        <button type="button" class="modal-close-btn" id="closeCustomStatusModalBtn" title="Close (ESC)">&times;</button>
+      </div>
+
+      <div class="custom-status-form-body">
+        <div class="custom-status-input-row">
+          <button type="button" class="custom-status-emoji-trigger" id="customStatusEmojiTrigger" title="Choose emoji">
+            <span id="customStatusSelectedEmoji">💬</span>
+          </button>
+          <input type="text" id="customStatusTextInput" class="discord-input custom-status-text-input" placeholder="What's on your mind?" maxlength="128" />
+        </div>
+
+        <!-- Quick emoji suggestions -->
+        <div class="custom-status-quick-emojis">
+          <span class="quick-emoji-label">Quick suggestions:</span>
+          <div class="quick-emoji-buttons" id="quickEmojiButtons">
+            <button type="button" class="quick-emoji-btn" data-emoji="💬">💬</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🎮">🎮</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="☕">☕</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🎧">🎧</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="💻">💻</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🔥">🔥</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="💤">💤</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="📚">📚</button>
+            <button type="button" class="quick-emoji-btn" data-emoji="🍕">🍕</button>
+          </div>
+        </div>
+
+        <!-- Expiration selector -->
+        <div class="form-group mt-15">
+          <label for="customStatusDurationSelect" class="discord-form-label">CLEAR AFTER</label>
+          <select id="customStatusDurationSelect" class="discord-select">
+            <option value="today" selected>Today</option>
+            <option value="4h">4 hours</option>
+            <option value="1h">1 hour</option>
+            <option value="30m">30 minutes</option>
+            <option value="never">Don't clear (Never)</option>
+            <option value="custom">Custom duration...</option>
+          </select>
+        </div>
+
+        <!-- Custom duration minutes input (hidden unless custom selected) -->
+        <div class="form-group mt-10 hidden" id="customStatusMinutesGroup">
+          <label for="customStatusMinutesInput" class="discord-form-label">DURATION IN MINUTES</label>
+          <input type="number" id="customStatusMinutesInput" class="discord-input" min="1" max="43200" placeholder="e.g. 120" value="120" />
+        </div>
+
+        <div class="auth-error mt-10 hidden" id="customStatusError"></div>
+      </div>
+
+      <div class="modal-actions custom-status-actions">
+        <button type="button" class="secondary-btn btn-danger-text hidden" id="modalClearCustomStatusBtn">Clear Status</button>
+        <div class="custom-status-actions-right">
+          <button type="button" class="secondary-btn" id="modalCancelCustomStatusBtn">Cancel</button>
+          <button type="button" class="discord-primary-btn" id="modalSaveCustomStatusBtn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Settings Modal Overlay (Stage 3d.5) -->
+  <div class="modal-overlay hidden" id="notifSettingsModalOverlay">
+    <div class="modal-card notif-settings-modal-card" id="notifSettingsModalCard">
+      <div class="modal-header">
+        <div>
+          <h2>Notification Settings</h2>
+          <p>Control which notifications and sounds you receive.</p>
+        </div>
+        <button type="button" class="modal-close-btn" id="closeNotifSettingsModalBtn" title="Close (ESC)">&times;</button>
+      </div>
+      <div class="notif-settings-body">
+        <div class="notif-settings-section-title">NOTIFICATION CATEGORIES</div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">@ Mentions</span>
+            <span class="notif-toggle-desc">Notifications when someone mentions you in a channel</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleMentions" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Direct Messages (DMs)</span>
+            <span class="notif-toggle-desc">Notifications for private messages from friends</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleDms" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Friend Requests</span>
+            <span class="notif-toggle-desc">Notifications for incoming friend requests and accepted requests</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleFriends" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Voice & Video Calls</span>
+            <span class="notif-toggle-desc">Incoming and missed call alerts</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleCalls" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Community & Feedback</span>
+            <span class="notif-toggle-desc">Feedback status updates from developer</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleFeedback" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+
+        <div class="notif-settings-section-title mt-20">SOUND & ALERTS</div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Notification Sounds</span>
+            <span class="notif-toggle-desc">Play audio chimes when receiving notifications</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleSounds" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+        <div class="notif-toggle-row">
+          <div class="notif-toggle-meta">
+            <span class="notif-toggle-title">Red Urgent Mentions Always Alert</span>
+            <span class="notif-toggle-desc">Triple chime and red flash even in Do Not Disturb</span>
+          </div>
+          <label class="discord-switch">
+            <input type="checkbox" id="notifToggleUrgentAlert" checked />
+            <span class="discord-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="discord-primary-btn btn-full" id="saveNotifSettingsBtn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Discord-Style Settings Modal (80% Centered Rectangle, Blurred Background, Left Category Bars) -->
+  <div class="settings-modal-overlay hidden" id="appSettingsModalOverlay">
+    <div class="settings-modal-window" id="appSettingsModalWindow" role="dialog" aria-modal="true" aria-labelledby="settingsPaneTitle">
+      <!-- Left Category Sidebar (Bars) -->
+      <aside class="settings-sidebar">
+        <div class="settings-sidebar-header">USER SETTINGS</div>
+        <button type="button" class="settings-nav-bar active" data-tab="account" id="settingsTabAccount">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+          <span>My Account</span>
+        </button>
+
+        <button type="button" class="settings-nav-bar" data-tab="profiles" id="settingsTabProfiles">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm6 12H6v-1.4c0-2 4-3.1 6-3.1s6 1.1 6 3.1V18z"/>
+          </svg>
+          <span>Profiles</span>
+        </button>
+
+        <button type="button" class="settings-nav-bar" data-tab="status" id="settingsTabStatus">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.59 8-8 8z"/>
+          </svg>
+          <span>User Status</span>
+        </button>
+
+        <div class="settings-sidebar-divider"></div>
+
+        <div class="settings-sidebar-header">APP SETTINGS</div>
+        <button type="button" class="settings-nav-bar" data-tab="appearance" id="settingsTabAppearance">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 19.4c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l1.9-1.9C9.22 19.58 10.57 20 12 20c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 15c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/>
+          </svg>
+          <span>Appearance</span>
+        </button>
+
+        <button type="button" class="settings-nav-bar" data-tab="animations" id="settingsTabAnimations">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M7 2v11h3v9l7-12h-4l4-8z"/>
+          </svg>
+          <span>Animations</span>
+        </button>
+
+        <button type="button" class="settings-nav-bar" data-tab="sounds" id="settingsTabSounds">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+          <span>Sounds & Typing</span>
+        </button>
+
+        <button type="button" class="settings-nav-bar" data-tab="notifications" id="settingsTabNotifications">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/>
+          </svg>
+          <span>Notifications</span>
+        </button>
+
+        <button type="button" class="settings-nav-bar" data-tab="voice" id="settingsTabVoice">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.09-.6-.39-1.14-1-1.14z"/>
+          </svg>
+          <span>Voice & Video</span>
+        </button>
+
+        <div class="settings-sidebar-divider"></div>
+
+        <div class="settings-sidebar-header">COMMUNITY</div>
+        <button type="button" class="settings-nav-bar" data-tab="feedback" id="settingsTabFeedback">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 12h-2v-2h2v2zm0-4h-2V6h2v4z"/>
+          </svg>
+          <span>Feedback</span>
+        </button>
+
+        <!-- Developer Settings Tab (Only visible to Dev accounts) -->
+        <div id="settingsDevSidebarGroup" class="hidden">
+          <div class="settings-sidebar-divider"></div>
+          <div class="settings-sidebar-header">DEVELOPER CONTROLS</div>
+          <button type="button" class="settings-nav-bar" data-tab="developer" id="settingsTabDeveloper">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
+            </svg>
+            <span>Developer Settings</span>
+          </button>
+        </div>
+
+        <div class="settings-sidebar-divider"></div>
+
+        <button type="button" class="settings-nav-bar settings-nav-logout" id="settingsTabLogout">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+          </svg>
+          <span>Log Out</span>
+        </button>
+      </aside>
+
+      <!-- Right Content Pane -->
+      <main class="settings-content-pane">
+        <!-- Discord Iconic ESC Close Button -->
+        <div class="settings-close-wrap">
+          <button type="button" class="settings-close-btn" id="closeAppSettingsModalBtn" title="Close Settings (ESC)" aria-label="Close Settings">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
+          <span class="settings-close-hint">ESC</span>
+        </div>
+
+        <header class="settings-pane-header">
+          <h2 id="settingsPaneTitle">My Account</h2>
+          <p id="settingsPaneDesc">Manage your account information and credentials.</p>
+        </header>
+
+        <!-- Tab 1: My Account -->
+        <div class="settings-tab-section active" id="settingsSecAccount">
+          <div class="settings-profile-card">
+            <div class="settings-profile-banner"></div>
+            <div class="settings-profile-header-row">
+              <div class="settings-profile-avatar-wrap">
+                <div class="user-avatar settings-profile-avatar" id="settingsAvatarDisplay">U</div>
+                <div class="user-status-badge status-online settings-avatar-badge" id="settingsStatusBadgeDisplay"></div>
+              </div>
+              <div class="settings-profile-header-meta">
+                <div class="settings-profile-name-row">
+                  <span class="settings-profile-name" id="settingsDisplayNameText">User</span>
+                  <span class="dev-badge hidden" id="settingsDevBadge">DEV</span>
+                </div>
+                <span class="settings-profile-handle" id="settingsHandleText">@user</span>
+              </div>
+              <button type="button" class="settings-edit-profile-btn" id="settingsEditProfileQuickBtn">Edit Profile</button>
+            </div>
+
+            <div class="settings-info-box mt-15">
+              <div class="settings-info-row">
+                <div class="settings-info-field">
+                  <span class="settings-info-label">DISPLAY NAME</span>
+                  <span class="settings-info-val" id="settingsInfoDisplayName">User</span>
+                </div>
+              </div>
+              <div class="settings-info-row">
+                <div class="settings-info-field">
+                  <span class="settings-info-label">USERNAME</span>
+                  <span class="settings-info-val" id="settingsInfoUsername">@user</span>
+                </div>
+              </div>
+              <div class="settings-info-row">
+                <div class="settings-info-field">
+                  <span class="settings-info-label">ROLE</span>
+                  <span class="settings-info-val" id="settingsInfoRole">Standard Member</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Profiles -->
+        <div class="settings-tab-section hidden" id="settingsSecProfiles">
+          <div class="settings-card">
+            <h3 class="settings-card-title">User Profile</h3>
+            <p class="settings-card-desc">Customize how you look across all servers and direct messages.</p>
+            <div class="settings-card-actions mt-15">
+              <button type="button" class="discord-primary-btn" id="settingsOpenFullProfileBtn">Customize Profile</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: User Status -->
+        <div class="settings-tab-section hidden" id="settingsSecStatus">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Online Status</h3>
+            <p class="settings-card-desc">Set your presence to let friends know when you are available.</p>
+            <div class="settings-status-picker-grid mt-15">
+              <button type="button" class="settings-status-btn" data-status="online">
+                <span class="status-choice-dot status-online"></span>
+                <span>Online</span>
+              </button>
+              <button type="button" class="settings-status-btn" data-status="idle">
+                <span class="status-choice-dot status-idle"></span>
+                <span>Idle</span>
+              </button>
+              <button type="button" class="settings-status-btn" data-status="dnd">
+                <span class="status-choice-dot status-dnd"></span>
+                <span>Do Not Disturb</span>
+              </button>
+              <button type="button" class="settings-status-btn" data-status="invisible">
+                <span class="status-choice-dot status-offline"></span>
+                <span>Invisible</span>
+              </button>
+            </div>
+            <div class="mt-15">
+              <button type="button" class="secondary-btn" id="settingsCustomStatusQuickBtn">Set Custom Status</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4: Appearance -->
+        <div class="settings-tab-section hidden" id="settingsSecAppearance">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Theme Presets</h3>
+            <p class="settings-card-desc">Choose your favorite Discord color palette. Themes take effect immediately across all windows.</p>
+            <div class="settings-theme-cards-grid mt-15" id="settingsThemeCardsGrid">
+              <!-- Theme 1: Dark (Default) -->
+              <div class="settings-theme-card active" data-theme="dark">
+                <div class="theme-card-preview dark-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Dark</span>
+                  <span class="theme-card-sub">Default Discord Slate</span>
+                </div>
+              </div>
+
+              <!-- Theme 2: Midnight (Pure Black / OLED) -->
+              <div class="settings-theme-card" data-theme="midnight">
+                <div class="theme-card-preview midnight-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Midnight</span>
+                  <span class="theme-card-sub">Pure Black OLED</span>
+                </div>
+              </div>
+
+              <!-- Theme 3: Light Mode -->
+              <div class="settings-theme-card" data-theme="light">
+                <div class="theme-card-preview light-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Light</span>
+                  <span class="theme-card-sub">Clean White & Gray</span>
+                </div>
+              </div>
+
+              <!-- Theme 4: Cyberpunk / Neon Synthwave -->
+              <div class="settings-theme-card" data-theme="synthwave">
+                <div class="theme-card-preview synthwave-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Synthwave</span>
+                  <span class="theme-card-sub">Neon Violet & Cyan</span>
+                </div>
+              </div>
+
+              <!-- Theme 5: Emerald Forest -->
+              <div class="settings-theme-card" data-theme="forest">
+                <div class="theme-card-preview forest-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Forest</span>
+                  <span class="theme-card-sub">Deep Emerald & Mint</span>
+                </div>
+              </div>
+
+              <!-- Theme 6: Rose Velvet -->
+              <div class="settings-theme-card" data-theme="rose">
+                <div class="theme-card-preview rose-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Rose Velvet</span>
+                  <span class="theme-card-sub">Warm Wine & Coral</span>
+                </div>
+              </div>
+
+              <!-- Theme 7: Oceanic Abyss -->
+              <div class="settings-theme-card" data-theme="ocean">
+                <div class="theme-card-preview ocean-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Oceanic</span>
+                  <span class="theme-card-sub">Deep Navy & Aqua</span>
+                </div>
+              </div>
+
+              <!-- Theme 8: Sunset Amber -->
+              <div class="settings-theme-card" data-theme="sunset">
+                <div class="theme-card-preview sunset-preview">
+                  <span class="theme-active-checkmark">✓</span>
+                </div>
+                <div class="theme-card-info">
+                  <span class="theme-card-label">Sunset</span>
+                  <span class="theme-card-sub">Warm Twilight & Amber</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Accent Color Swatches Card -->
+          <div class="settings-card mt-15">
+            <h3 class="settings-card-title">Custom Accent Color</h3>
+            <p class="settings-card-desc">Highlight buttons, active indicators, and links with your signature accent color.</p>
+            <div class="accent-color-swatches-row mt-15" id="accentColorSwatches">
+              <button type="button" class="accent-swatch-btn active" data-accent="#5865f2" style="background-color: #5865f2;" title="Discord Blurple">✓</button>
+              <button type="button" class="accent-swatch-btn" data-accent="#23a55a" style="background-color: #23a55a;" title="Emerald Green">✓</button>
+              <button type="button" class="accent-swatch-btn" data-accent="#f0b232" style="background-color: #f0b232;" title="Golden Amber">✓</button>
+              <button type="button" class="accent-swatch-btn" data-accent="#da373c" style="background-color: #da373c;" title="Crimson Red">✓</button>
+              <button type="button" class="accent-swatch-btn" data-accent="#eb459e" style="background-color: #eb459e;" title="Fuchsia Pink">✓</button>
+              <button type="button" class="accent-swatch-btn" data-accent="#00b0f4" style="background-color: #00b0f4;" title="Cyan Blue">✓</button>
+              <button type="button" class="accent-swatch-btn" data-accent="#9b59b6" style="background-color: #9b59b6;" title="Amethyst Purple">✓</button>
+            </div>
+          </div>
+
+          <!-- Custom Theme Creator Studio Card -->
+          <div class="settings-card custom-theme-creator-card mt-15">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title flex-align-gap">
+                  <span>🎨</span>
+                  <span>Create Your Own Theme</span>
+                </h3>
+                <p class="settings-card-desc">Design your own custom color scheme with exact background shades, text colors, and highlights.</p>
+              </div>
+              <button type="button" class="discord-primary-btn" id="toggleThemeBuilderBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                </svg>
+                <span>New Theme</span>
+              </button>
+            </div>
+
+            <!-- Custom Themes Saved List -->
+            <div class="user-custom-themes-section mt-15" id="userCustomThemesSection">
+              <label class="discord-form-label">YOUR SAVED THEMES</label>
+              <div class="settings-theme-cards-grid mt-10" id="userCustomThemesGrid">
+                <div class="custom-themes-empty-hint" id="customThemesEmptyHint">
+                  No custom themes yet. Click "New Theme" above to build your own!
+                </div>
+              </div>
+            </div>
+
+            <!-- Collapsible Theme Builder Editor -->
+            <div class="theme-builder-box hidden mt-15" id="themeBuilderBox">
+              <div class="theme-builder-header">
+                <h4 class="theme-builder-title">Theme Studio</h4>
+                <span class="theme-builder-sub">Changes preview live as you pick colors</span>
+              </div>
+
+              <form id="customThemeForm" autocomplete="off">
+                <div class="theme-builder-name-row mt-10">
+                  <div class="form-group flex-1">
+                    <label class="discord-form-label">THEME NAME</label>
+                    <input type="text" id="customThemeNameInput" class="discord-input" placeholder="e.g. Cyber Matrix, Sakura Peach..." required maxlength="30" />
+                  </div>
+                </div>
+
+                <div class="theme-color-pickers-grid mt-15">
+                  <!-- Main Chat Background -->
+                  <div class="theme-color-item">
+                    <div class="theme-color-meta">
+                      <span class="theme-color-title">Chat Background</span>
+                      <span class="theme-color-desc">Main message area</span>
+                    </div>
+                    <div class="color-picker-input-wrap">
+                      <input type="color" id="themeColorBgPrimary" class="theme-color-wheel" value="#1a1c23" />
+                      <input type="text" id="themeHexBgPrimary" class="theme-hex-input" value="#1a1c23" maxlength="7" />
+                    </div>
+                  </div>
+
+                  <!-- Sidebar / Lists Background -->
+                  <div class="theme-color-item">
+                    <div class="theme-color-meta">
+                      <span class="theme-color-title">Sidebar Background</span>
+                      <span class="theme-color-desc">Channels & DMs column</span>
+                    </div>
+                    <div class="color-picker-input-wrap">
+                      <input type="color" id="themeColorBgSecondary" class="theme-color-wheel" value="#13141a" />
+                      <input type="text" id="themeHexBgSecondary" class="theme-hex-input" value="#13141a" maxlength="7" />
+                    </div>
+                  </div>
+
+                  <!-- Outer Rail & Headers Background -->
+                  <div class="theme-color-item">
+                    <div class="theme-color-meta">
+                      <span class="theme-color-title">Server Rail Background</span>
+                      <span class="theme-color-desc">Server icons & header bars</span>
+                    </div>
+                    <div class="color-picker-input-wrap">
+                      <input type="color" id="themeColorBgTertiary" class="theme-color-wheel" value="#0d0e12" />
+                      <input type="text" id="themeHexBgTertiary" class="theme-hex-input" value="#0d0e12" maxlength="7" />
+                    </div>
+                  </div>
+
+                  <!-- Input Fields Background -->
+                  <div class="theme-color-item">
+                    <div class="theme-color-meta">
+                      <span class="theme-color-title">Input Fields</span>
+                      <span class="theme-color-desc">Chatbox & text inputs</span>
+                    </div>
+                    <div class="color-picker-input-wrap">
+                      <input type="color" id="themeColorBgInput" class="theme-color-wheel" value="#22252e" />
+                      <input type="text" id="themeHexBgInput" class="theme-hex-input" value="#22252e" maxlength="7" />
+                    </div>
+                  </div>
+
+                  <!-- Normal Text Color -->
+                  <div class="theme-color-item">
+                    <div class="theme-color-meta">
+                      <span class="theme-color-title">Normal Text</span>
+                      <span class="theme-color-desc">Message bodies & labels</span>
+                    </div>
+                    <div class="color-picker-input-wrap">
+                      <input type="color" id="themeColorTextNormal" class="theme-color-wheel" value="#e3e5e8" />
+                      <input type="text" id="themeHexTextNormal" class="theme-hex-input" value="#e3e5e8" maxlength="7" />
+                    </div>
+                  </div>
+
+                  <!-- Accent / Highlight Color -->
+                  <div class="theme-color-item">
+                    <div class="theme-color-meta">
+                      <span class="theme-color-title">Accent Color</span>
+                      <span class="theme-color-desc">Buttons, badges & active items</span>
+                    </div>
+                    <div class="color-picker-input-wrap">
+                      <input type="color" id="themeColorAccent" class="theme-color-wheel" value="#5865f2" />
+                      <input type="text" id="themeHexAccent" class="theme-hex-input" value="#5865f2" maxlength="7" />
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Theme Quick Presets Generator Buttons -->
+                <div class="theme-generator-shortcuts mt-15">
+                  <span class="discord-form-label">START WITH A BASE:</span>
+                  <div class="theme-shortcut-pills mt-5">
+                    <button type="button" class="theme-shortcut-pill" data-base="neon-purple">💜 Neon Violet</button>
+                    <button type="button" class="theme-shortcut-pill" data-base="nordic-blue">❄️ Nordic Frost</button>
+                    <button type="button" class="theme-shortcut-pill" data-base="matcha">🍵 Matcha Tea</button>
+                    <button type="button" class="theme-shortcut-pill" data-base="cherry">🍒 Dark Cherry</button>
+                    <button type="button" class="theme-shortcut-pill" data-base="golden-dark">🏆 Gold Obsidian</button>
+                  </div>
+                </div>
+
+                <!-- Live Mini Preview -->
+                <div class="theme-mini-preview-card mt-15" id="themeBuilderMiniPreview">
+                  <div class="mini-preview-rail">
+                    <div class="mini-preview-dot"></div>
+                    <div class="mini-preview-dot active"></div>
+                  </div>
+                  <div class="mini-preview-sidebar">
+                    <div class="mini-preview-channel"># general</div>
+                    <div class="mini-preview-channel active"># voiceline</div>
+                  </div>
+                  <div class="mini-preview-chat">
+                    <div class="mini-preview-msg">Hello from your custom theme! ✨</div>
+                    <div class="mini-preview-input">Type a message...</div>
+                  </div>
+                </div>
+
+                <div class="theme-builder-actions mt-15">
+                  <button type="button" class="secondary-btn" id="cancelThemeBuilderBtn">Cancel</button>
+                  <button type="submit" class="discord-primary-btn" id="saveCustomThemeBtn">Save & Apply Theme</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4b: Animations & Motion -->
+        <div class="settings-tab-section hidden" id="settingsSecAnimations">
+          <!-- Master Switch: Enable / Disable Smooth Animations -->
+          <div class="settings-card anim-toggle-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title">Enable Smooth Animations</h3>
+                <p class="settings-card-desc">Play fluid UI transitions, sliding drawers, modal fade-ins, and button hover motion across the app.</p>
+              </div>
+              <label class="discord-switch" title="Toggle Smooth Animations">
+                <input type="checkbox" id="animMasterToggle" checked />
+                <span class="discord-slider"></span>
+              </label>
+            </div>
+            <div class="anim-status-banner mt-15" id="animStatusBanner">
+              <span class="anim-status-dot active"></span>
+              <span class="anim-status-text" id="animStatusText">Smooth animations are <strong>Enabled</strong>.</span>
+            </div>
+          </div>
+
+          <!-- Speed & Duration Sliders -->
+          <div class="settings-card" id="animControlsCard">
+            <h3 class="settings-card-title">Animation Duration & Speed</h3>
+            <p class="settings-card-desc">Customize how long animations take to finish. Slower for cinema style or faster for snappy response.</p>
+
+            <!-- Duration Slider -->
+            <div class="anim-slider-row mt-20">
+              <div class="anim-slider-meta">
+                <span class="anim-slider-label">ANIMATION DURATION</span>
+                <span class="anim-slider-val" id="animDurationDisplay">180ms</span>
+              </div>
+              <input type="range" class="discord-range" id="animDurationSlider" min="0" max="5000" step="50" value="180" />
+              <div class="anim-slider-ticks">
+                <span>0s (Instant)</span>
+                <span>180ms</span>
+                <span>1.0s</span>
+                <span>2.5s</span>
+                <span>5.0s (Slow-Mo)</span>
+              </div>
+            </div>
+
+            <!-- Preset Speed Buttons -->
+            <div class="mt-20">
+              <label class="discord-form-label">SPEED PRESETS</label>
+              <div class="anim-preset-buttons-grid mt-5">
+                <button type="button" class="anim-preset-btn" data-duration="0">⚡ Instant (0ms)</button>
+                <button type="button" class="anim-preset-btn" data-duration="100">🚀 Fast (100ms)</button>
+                <button type="button" class="anim-preset-btn active" data-duration="180">✨ Default (180ms)</button>
+                <button type="button" class="anim-preset-btn" data-duration="600">🌊 Smooth (600ms)</button>
+                <button type="button" class="anim-preset-btn" data-duration="2000">🐢 Slow (2.0s)</button>
+                <button type="button" class="anim-preset-btn" data-duration="5000">🎬 Slow-Mo (5.0s)</button>
+              </div>
+            </div>
+
+            <!-- Easing Curve Picker -->
+            <div class="mt-20">
+              <label class="discord-form-label">ANIMATION EASING CURVE</label>
+              <div class="anim-easing-grid mt-5">
+                <button type="button" class="anim-easing-btn active" data-easing="ease-out">
+                  <span class="easing-btn-title">Ease Out</span>
+                  <span class="easing-btn-sub">Starts quickly, softly settles</span>
+                </button>
+                <button type="button" class="anim-easing-btn" data-easing="ease-in-out">
+                  <span class="easing-btn-title">Ease In-Out</span>
+                  <span class="easing-btn-sub">Smooth acceleration & deceleration</span>
+                </button>
+                <button type="button" class="anim-easing-btn" data-easing="cubic-bezier(0.16, 1, 0.3, 1)">
+                  <span class="easing-btn-title">Brisk Spring</span>
+                  <span class="easing-btn-sub">Snappy modern spring curve</span>
+                </button>
+                <button type="button" class="anim-easing-btn" data-easing="linear">
+                  <span class="easing-btn-title">Linear</span>
+                  <span class="easing-btn-sub">Constant consistent speed</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Specific Animation Effects Toggles -->
+          <div class="settings-card" id="animEffectsCard">
+            <h3 class="settings-card-title">Motion & Effects</h3>
+            <p class="settings-card-desc">Control specific animated effects throughout Voiceline.</p>
+
+            <div class="anim-toggle-list mt-15">
+              <div class="anim-toggle-item">
+                <div class="anim-toggle-meta">
+                  <span class="anim-toggle-item-title">Pulse Glows & Rings</span>
+                  <span class="anim-toggle-item-desc">Feedback button red glow and incoming call pulse rings</span>
+                </div>
+                <label class="discord-switch">
+                  <input type="checkbox" id="animTogglePulseGlow" checked />
+                  <span class="discord-slider"></span>
+                </label>
+              </div>
+
+              <div class="anim-toggle-item">
+                <div class="anim-toggle-meta">
+                  <span class="anim-toggle-item-title">Pop-in & Sliding Panels</span>
+                  <span class="anim-toggle-item-desc">Slide and scale animations for notifications, modals, and drawers</span>
+                </div>
+                <label class="discord-switch">
+                  <input type="checkbox" id="animTogglePopIn" checked />
+                  <span class="discord-slider"></span>
+                </label>
+              </div>
+
+              <div class="anim-toggle-item">
+                <div class="anim-toggle-meta">
+                  <span class="anim-toggle-item-title">Urgent Red Mention Flash</span>
+                  <span class="anim-toggle-item-desc">5-flash visual pulse when receiving urgent priority mentions</span>
+                </div>
+                <label class="discord-switch">
+                  <input type="checkbox" id="animToggleUrgentFlash" checked />
+                  <span class="discord-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Animation Sandbox / Preview Card -->
+          <div class="settings-card anim-preview-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title">Live Animation Preview</h3>
+                <p class="settings-card-desc">Test your animation settings in real time.</p>
+              </div>
+              <button type="button" class="secondary-btn" id="animResetDefaultsBtn">Reset to Defaults</button>
+            </div>
+            <div class="anim-preview-box mt-15">
+              <div class="anim-preview-ball" id="animPreviewBall">🚀</div>
+              <div class="anim-preview-actions">
+                <button type="button" class="discord-primary-btn" id="animTestPlayBtn">
+                  <span>Test Animation</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4c: Sounds & Typing Noise -->
+        <div class="settings-tab-section hidden" id="settingsSecSounds">
+          <!-- Master Typing Sound Switch -->
+          <div class="settings-card sound-toggle-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title">Typing Noise</h3>
+                <p class="settings-card-desc">Play satisfying acoustic keypress sounds as you type messages, search, or fill out fields.</p>
+              </div>
+              <label class="discord-switch" title="Toggle Typing Noise">
+                <input type="checkbox" id="typingSoundMasterToggle" checked />
+                <span class="discord-slider"></span>
+              </label>
+            </div>
+            <div class="sound-status-banner mt-15" id="typingSoundStatusBanner">
+              <span class="sound-status-dot active"></span>
+              <span class="sound-status-text" id="typingSoundStatusText">Typing sounds are <strong>Enabled</strong>.</span>
+            </div>
+          </div>
+
+          <!-- Typing Noise Presets & Sound Selection -->
+          <div class="settings-card" id="typingSoundConfigCard">
+            <h3 class="settings-card-title">Typing Sound Presets</h3>
+            <p class="settings-card-desc">Choose between built-in mechanical keyboard profiles, bubble pops, or custom synthesizer tones.</p>
+
+            <div class="sound-presets-grid mt-15" id="typingPresetsGrid">
+              <!-- Preset 1: Mechanical Blue -->
+              <button type="button" class="sound-preset-card active" data-preset="mechanical">
+                <div class="preset-card-top">
+                  <span class="preset-icon">⌨️</span>
+                  <span class="preset-badge">Default</span>
+                </div>
+                <div class="preset-title">Mechanical Blue</div>
+                <div class="preset-desc">Crisp, satisfying clicky switch clatter</div>
+              </button>
+
+              <!-- Preset 2: Soft Thock -->
+              <button type="button" class="sound-preset-card" data-preset="thock">
+                <div class="preset-card-top">
+                  <span class="preset-icon">🪵</span>
+                  <span class="preset-badge">Warm</span>
+                </div>
+                <div class="preset-title">Deep Thock</div>
+                <div class="preset-desc">Lubed linear switch with a warm, deep acoustic bottom-out</div>
+              </button>
+
+              <!-- Preset 3: Bubble Pop -->
+              <button type="button" class="sound-preset-card" data-preset="bubble">
+                <div class="preset-card-top">
+                  <span class="preset-icon">🫧</span>
+                  <span class="preset-badge">Playful</span>
+                </div>
+                <div class="preset-title">Bubble Pop</div>
+                <div class="preset-desc">Light and bubbly water droplet pops</div>
+              </button>
+
+              <!-- Preset 4: Retro Typewriter -->
+              <button type="button" class="sound-preset-card" data-preset="typewriter">
+                <div class="preset-card-top">
+                  <span class="preset-icon">📜</span>
+                  <span class="preset-badge">Vintage</span>
+                </div>
+                <div class="preset-title">Typewriter</div>
+                <div class="preset-desc">Heavy vintage mechanical metal strike</div>
+              </button>
+
+              <!-- Preset 5: Soft Laptop -->
+              <button type="button" class="sound-preset-card" data-preset="laptop">
+                <div class="preset-card-top">
+                  <span class="preset-icon">💻</span>
+                  <span class="preset-badge">Subtle</span>
+                </div>
+                <div class="preset-title">Scissor Switch</div>
+                <div class="preset-desc">Quiet modern chiclet keyboard tap</div>
+              </button>
+
+              <!-- Preset 6: Custom Synthesizer -->
+              <button type="button" class="sound-preset-card" data-preset="custom">
+                <div class="preset-card-top">
+                  <span class="preset-icon">🎛️</span>
+                  <span class="preset-badge">Advanced</span>
+                </div>
+                <div class="preset-title">Custom Synth</div>
+                <div class="preset-desc">Customize pitch, tone shape, and decay envelope</div>
+              </button>
+            </div>
+
+            <!-- Custom Synthesizer Controls (Only visible when Custom is selected) -->
+            <div class="custom-synth-box hidden mt-20" id="customSynthBox">
+              <h4 class="custom-synth-title">Custom Synthesizer Settings</h4>
+              <div class="custom-synth-grid">
+                <!-- Tone Waveform -->
+                <div class="form-group flex-1">
+                  <label class="discord-form-label">WAVEFORM SHAPE</label>
+                  <select id="customWaveformSelect" class="discord-select">
+                    <option value="sine">Sine (Pure, Smooth tone)</option>
+                    <option value="triangle" selected>Triangle (Warm, Soft acoustic)</option>
+                    <option value="square">Square (8-bit, Crisp arcade click)</option>
+                    <option value="sawtooth">Sawtooth (Bright, Sharp bite)</option>
+                  </select>
+                </div>
+
+                <!-- Base Frequency / Pitch Slider -->
+                <div class="form-group flex-1">
+                  <div class="anim-slider-meta">
+                    <span class="discord-form-label">BASE PITCH (FREQUENCY)</span>
+                    <span class="anim-slider-val" id="customFreqDisplay">540Hz</span>
+                  </div>
+                  <input type="range" class="discord-range" id="customFreqSlider" min="150" max="1800" step="10" value="540" />
+                </div>
+              </div>
+
+              <div class="custom-synth-grid mt-10">
+                <!-- Click Decay -->
+                <div class="form-group flex-1">
+                  <div class="anim-slider-meta">
+                    <span class="discord-form-label">CLICK DURATION / DECAY</span>
+                    <span class="anim-slider-val" id="customDecayDisplay">45ms</span>
+                  </div>
+                  <input type="range" class="discord-range" id="customDecaySlider" min="10" max="150" step="5" value="45" />
+                </div>
+
+                <!-- Noise Texture Amount -->
+                <div class="form-group flex-1">
+                  <div class="anim-slider-meta">
+                    <span class="discord-form-label">KEY CHATTER NOISE</span>
+                    <span class="anim-slider-val" id="customNoiseDisplay">35%</span>
+                  </div>
+                  <input type="range" class="discord-range" id="customNoiseSlider" min="0" max="100" step="5" value="35" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Volume Slider -->
+            <div class="sound-volume-section mt-20">
+              <div class="anim-slider-meta">
+                <span class="anim-slider-label">TYPING NOISE VOLUME</span>
+                <span class="anim-slider-val" id="typingVolumeDisplay">65%</span>
+              </div>
+              <input type="range" class="discord-range" id="typingVolumeSlider" min="0" max="100" step="5" value="65" />
+            </div>
+
+            <!-- Where to play toggles -->
+            <div class="mt-20">
+              <label class="discord-form-label">TYPING SOUND LOCATIONS</label>
+              <div class="sound-sub-toggles-grid mt-5">
+                <label class="dev-checkbox-label">
+                  <input type="checkbox" id="soundScopeChat" checked />
+                  <span>Chat message composer</span>
+                </label>
+                <label class="dev-checkbox-label">
+                  <input type="checkbox" id="soundScopeInputs" checked />
+                  <span>Search bars & modals</span>
+                </label>
+                <label class="dev-checkbox-label">
+                  <input type="checkbox" id="soundPitchVary" checked />
+                  <span>Realistic pitch variation (human acoustic nuance)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Test Button Card -->
+          <div class="settings-card sound-test-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title">Test Typing Noise</h3>
+                <p class="settings-card-desc">Type in this scratchbox or click the test button to hear how your selected typing noise sounds.</p>
+              </div>
+              <button type="button" class="secondary-btn" id="soundResetDefaultsBtn">Reset Sounds</button>
+            </div>
+
+            <div class="sound-test-container mt-15">
+              <input 
+                type="text" 
+                class="discord-input sound-test-input" 
+                id="soundTestInput" 
+                placeholder="Type here with your keyboard to hear the noise..." 
+              />
+              <div class="sound-test-actions mt-15">
+                <button type="button" class="discord-primary-btn" id="testTypingSoundBtn">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                  <span>Test Noise</span>
+                </button>
+                <button type="button" class="secondary-btn" id="testTypingSentenceBtn">
+                  <span>Simulate Fast Typing (3 Clacks)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 5: Notifications -->
+        <div class="settings-tab-section hidden" id="settingsSecNotifications">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Notification Settings</h3>
+            <p class="settings-card-desc">Fine-tune sounds, notification center badges, and urgent priority mentions.</p>
+            <div class="mt-15">
+              <button type="button" class="discord-primary-btn" id="settingsOpenNotifModalBtn">Open Notification Center Preferences</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 6: Voice & Video -->
+        <div class="settings-tab-section hidden" id="settingsSecVoice">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Voice & Video Settings</h3>
+            <p class="settings-card-desc">Configure WebRTC audio input, output devices, and camera testing.</p>
+            <div class="settings-info-box mt-15">
+              <div class="settings-info-row">
+                <div class="settings-info-field">
+                  <span class="settings-info-label">MIC INPUT STATUS</span>
+                  <span class="settings-info-val">Ready (WebRTC Enabled)</span>
+                </div>
+              </div>
+              <div class="settings-info-row">
+                <div class="settings-info-field">
+                  <span class="settings-info-label">VIDEO CAMERA</span>
+                  <span class="settings-info-val">Ready (WebRTC PeerConnection Enabled)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 7: Feedback -->
+        <div class="settings-tab-section hidden" id="settingsSecFeedback">
+          <div class="settings-card">
+            <h3 class="settings-card-title">Community Feedback Forum</h3>
+            <p class="settings-card-desc">Share feedback, report bugs, and vote on upcoming features with developers.</p>
+            <div class="mt-15">
+              <button type="button" class="discord-primary-btn" id="settingsOpenFeedbackForumBtn">Open Feedback Forum</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 8: Developer Settings (Developer Only) -->
+        <div class="settings-tab-section hidden" id="settingsSecDeveloper">
+          <!-- Safety Mode & Quick Toggles Card -->
+          <div class="settings-card dev-safety-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title flex-align-gap">
+                  <span class="dev-badge">DEV</span>
+                  <span>Safety Mode</span>
+                </h3>
+                <p class="settings-card-desc">When Safety Mode is OFF, removing or deleting accounts will execute immediately without asking for confirmation.</p>
+              </div>
+              <label class="discord-switch" title="Toggle Safety Mode">
+                <input type="checkbox" id="devSafetyModeToggle" checked />
+                <span class="discord-slider"></span>
+              </label>
+            </div>
+            <div class="dev-safety-status-bar" id="devSafetyStatusNotice">
+              <span class="safety-indicator-dot safe"></span>
+              <span class="safety-status-text" id="devSafetyStatusText">Safety Mode is <strong>ON</strong> (Deletion requires confirmation modal).</span>
+            </div>
+          </div>
+
+          <!-- Server Power & Lifecycle Card -->
+          <div class="settings-card dev-server-power-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title">Host Server Control</h3>
+                <p class="settings-card-desc">Manage the Voiceline process and announce shutdowns cleanly to all users.</p>
+              </div>
+              <span class="server-power-status-pill online" id="devServerPowerBadge">
+                <span class="power-status-dot online"></span>
+                <span>Active & Online</span>
+              </span>
+            </div>
+
+            <div class="server-power-actions-row mt-15">
+              <button type="button" class="dev-power-btn dev-power-stop-btn" id="settingsShutdownServerBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.12.96-4.02 2.58-5.41L6.17 5.17A8.932 8.932 0 0 0 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/>
+                </svg>
+                <span>Turn Off Server</span>
+              </button>
+              <button type="button" class="dev-power-btn dev-power-restart-btn" id="settingsRestartServerBtn" title="Broadcast restart countdown and refresh">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                </svg>
+                <span>Restart Session</span>
+              </button>
+            </div>
+            <p class="server-power-hint">All chat messages and server channels are continuously saved to SQLite.</p>
+          </div>
+
+          <!-- GIPHY Integration Card (Developer Only) -->
+          <div class="settings-card dev-giphy-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title flex-align-gap">
+                  <span>⚡ GIPHY API Integration</span>
+                </h3>
+                <p class="settings-card-desc">Connect your free GIPHY API Key for unlimited live searches, or use Voiceline's built-in curated reaction GIFs.</p>
+              </div>
+              <span class="server-power-status-pill online" id="devGiphyStatusBadge">
+                <span class="power-status-dot online"></span>
+                <span id="devGiphyStatusText">Curated Mode</span>
+              </span>
+            </div>
+
+            <div class="giphy-config-form mt-15">
+              <div class="form-group">
+                <label for="devGiphyApiKeyInput">GIPHY API KEY <span class="label-hint">(from developers.giphy.com)</span></label>
+                <div class="dev-giphy-input-row">
+                  <input type="text" id="devGiphyApiKeyInput" placeholder="Paste your GIPHY Beta or Production API Key..." autocomplete="off" />
+                  <button type="button" class="discord-primary-btn" id="devSaveGiphyKeyBtn">Save Key</button>
+                  <button type="button" class="secondary-btn" id="devTestGiphyKeyBtn">Test API</button>
+                </div>
+              </div>
+              <div class="dev-giphy-hint-text">
+                💡 Don't have a key? Sign up for free at <a href="https://developers.giphy.com" target="_blank" rel="noopener noreferrer">developers.giphy.com</a> and click "Create an App".
+              </div>
+            </div>
+          </div>
+
+          <!-- Account Management Card -->
+          <div class="settings-card dev-accounts-card">
+            <div class="dev-card-header-row">
+              <div>
+                <h3 class="settings-card-title">User Accounts Management</h3>
+                <p class="settings-card-desc">Inspect registered accounts, view real-time online status, add new accounts, or remove users.</p>
+              </div>
+              <div class="dev-header-actions-group">
+                <button type="button" class="discord-primary-btn" id="devCreateAccountToggleBtn">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                  </svg>
+                  <span>Add Account</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Inline Add Account Form (Collapsible) -->
+            <div class="dev-create-account-box hidden mt-15" id="devCreateAccountBox">
+              <h4 class="dev-create-title">Create New Account</h4>
+              <form id="devCreateAccountForm" class="dev-create-form" autocomplete="off">
+                <div class="dev-form-row">
+                  <div class="form-group flex-1">
+                    <label class="discord-form-label">USERNAME</label>
+                    <input type="text" id="devNewUsername" class="discord-input" placeholder="e.g. jannat" required minlength="3" />
+                  </div>
+                  <div class="form-group flex-1">
+                    <label class="discord-form-label">DISPLAY NAME</label>
+                    <input type="text" id="devNewDisplayName" class="discord-input" placeholder="e.g. Jannat" />
+                  </div>
+                </div>
+                <div class="dev-form-row">
+                  <div class="form-group flex-1">
+                    <label class="discord-form-label">PASSWORD</label>
+                    <input type="password" id="devNewPassword" class="discord-input" placeholder="Min 4 characters" required minlength="4" />
+                  </div>
+                  <div class="form-group flex-center-check">
+                    <label class="dev-checkbox-label">
+                      <input type="checkbox" id="devNewIsDeveloper" />
+                      <span>Grant Developer Rights</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="auth-error mt-5 hidden" id="devCreateAccountError"></div>
+                <div class="dev-form-actions mt-10">
+                  <button type="button" class="secondary-btn" id="devCancelCreateAccountBtn">Cancel</button>
+                  <button type="submit" class="discord-primary-btn" id="devSubmitCreateAccountBtn">Create Account</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Filter & Search Bar -->
+            <div class="dev-accounts-filter-bar mt-15">
+              <div class="dev-search-input-wrap">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                </svg>
+                <input type="text" id="devAccountsSearchInput" class="dev-search-input" placeholder="Filter by username or display name..." />
+              </div>
+              <div class="dev-filter-chips">
+                <button type="button" class="dev-filter-chip active" data-filter="all" id="devFilterAll">All (<span id="devCountAll">0</span>)</button>
+                <button type="button" class="dev-filter-chip" data-filter="online" id="devFilterOnline">🟢 Online (<span id="devCountOnline">0</span>)</button>
+                <button type="button" class="dev-filter-chip" data-filter="offline" id="devFilterOffline">⚪ Offline (<span id="devCountOffline">0</span>)</button>
+                <button type="button" class="dev-filter-chip" data-filter="devs" id="devFilterDevs">⚡ Developers (<span id="devCountDevs">0</span>)</button>
+              </div>
+            </div>
+
+            <!-- Live Accounts List -->
+            <div class="dev-accounts-table-container mt-15">
+              <div class="dev-accounts-loading" id="devAccountsLoading">Loading registered accounts...</div>
+              <div class="dev-accounts-list" id="devAccountsList"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Hidden Voice Audio Element -->
+  <audio id="remoteVoiceAudio" autoplay playsinline class="hidden"></audio>
+
+  <!-- Notification Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

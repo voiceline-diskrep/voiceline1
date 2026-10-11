@@ -1,0 +1,13 @@
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\VoicelineDesktop.exe
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\runtimes\win-x64\native\WebView2Loader.dll
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\VoicelineDesktop.dll
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\VoicelineDesktop.deps.json
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\VoicelineDesktop.runtimeconfig.json
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\VoicelineDesktop.pdb
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\WebView2Loader.dll
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\Microsoft.Web.WebView2.Core.dll
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\Microsoft.Web.WebView2.WinForms.dll
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\Microsoft.Web.WebView2.Wpf.dll
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\Microsoft.Web.WebView2.Core.xml
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\Microsoft.Web.WebView2.WinForms.xml
+C:\Users\russell\Documents\Voiceline\dist\Voiceline-Desktop\Microsoft.Web.WebView2.Wpf.xml

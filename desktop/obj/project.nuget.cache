@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "4YyRRL9cOcE=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\russell\\Documents\\Voiceline\\desktop\\VoicelineDesktop.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\russell\\.nuget\\packages\\microsoft.web.webview2\\1.0.4258.31\\microsoft.web.webview2.1.0.4258.31.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -102,6 +102,7 @@ try { db.exec(`UPDATE messages SET server_id = 1 WHERE server_id IS NULL;`); } c
 try { db.exec(`UPDATE messages SET channel_id = 1 WHERE channel_id IS NULL;`); } catch {}
 try { db.exec(`ALTER TABLE servers ADD COLUMN join_code TEXT;`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_join_code ON servers(join_code);`); } catch {}
+try { db.exec(`ALTER TABLE channels ADD COLUMN type TEXT DEFAULT 'text';`); } catch {}
 
 // Stage 3a-1: File attachments
 try { db.exec(`ALTER TABLE messages ADD COLUMN file_url TEXT DEFAULT NULL;`); } catch {}
@@ -117,6 +118,130 @@ try { db.exec(`ALTER TABLE direct_messages ADD COLUMN file_type TEXT DEFAULT NUL
 // Stage 3b-1: Account removal & soft-delete
 try { db.exec(`ALTER TABLE users ADD COLUMN is_deleted INTEGER DEFAULT 0;`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN deleted_at TEXT DEFAULT NULL;`); } catch {}
+
+// Version 5e-server settings: Tables & Migrations
+try { db.exec(`ALTER TABLE servers ADD COLUMN description TEXT DEFAULT '';`); } catch {}
+try { db.exec(`ALTER TABLE servers ADD COLUMN icon_url TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE servers ADD COLUMN default_channel_id INTEGER DEFAULT NULL;`); } catch {}
+
+try { db.exec(`ALTER TABLE channels ADD COLUMN topic TEXT DEFAULT '';`); } catch {}
+try { db.exec(`ALTER TABLE channels ADD COLUMN position INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE channels ADD COLUMN is_private INTEGER DEFAULT 0;`); } catch {}
+
+// Version 5f: Stickers & Custom Emojis column migrations
+try { db.exec(`ALTER TABLE stickers ADD COLUMN description TEXT DEFAULT '';`); } catch {}
+try { db.exec(`ALTER TABLE stickers ADD COLUMN tags TEXT DEFAULT '';`); } catch {}
+try { db.exec(`ALTER TABLE stickers ADD COLUMN file_format TEXT DEFAULT 'png';`); } catch {}
+try { db.exec(`ALTER TABLE stickers ADD COLUMN status TEXT DEFAULT 'approved';`); } catch {}
+
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS server_roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT '#99aab5',
+    position INTEGER DEFAULT 0,
+    permissions INTEGER NOT NULL DEFAULT 0,
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_server_roles_server ON server_roles(server_id, position);
+
+  CREATE TABLE IF NOT EXISTS server_member_roles (
+    server_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role_id INTEGER NOT NULL,
+    assigned_at TEXT NOT NULL,
+    PRIMARY KEY (server_id, user_id, role_id),
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(role_id) REFERENCES server_roles(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS server_bans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    banned_by INTEGER NOT NULL,
+    reason TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE(server_id, user_id),
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(banned_by) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS server_timeouts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    timed_out_by INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    reason TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE(server_id, user_id),
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(timed_out_by) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS server_warnings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    warned_by INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(warned_by) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS server_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER NOT NULL,
+    actor_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    target_id INTEGER DEFAULT NULL,
+    target_type TEXT DEFAULT NULL,
+    reason TEXT DEFAULT '',
+    changes_json TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_server_audit_logs_server ON server_audit_logs(server_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS stickers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER DEFAULT NULL,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    tags TEXT DEFAULT '',
+    file_url TEXT NOT NULL,
+    file_format TEXT NOT NULL DEFAULT 'png',
+    created_by INTEGER DEFAULT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_stickers_server ON stickers(server_id);
+
+  CREATE TABLE IF NOT EXISTS custom_emojis (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id INTEGER DEFAULT NULL,
+    code TEXT NOT NULL,
+    image_url TEXT NOT NULL,
+    created_by INTEGER DEFAULT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_custom_emojis_server ON custom_emojis(server_id);
+`);
+
 
 // Join Code Helpers
 const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -186,19 +311,40 @@ try {
   `).run();
 } catch {}
 
-// Ensure every server has at least one default channel: 'general'
+// Ensure every server has default text ('general') and voice ('lounge') channels
 const allServers = db.prepare(`SELECT id FROM servers`).all();
-const checkChannelStmt = db.prepare(`SELECT id FROM channels WHERE server_id = ? LIMIT 1`);
+const checkTextChannelStmt = db.prepare(`SELECT id FROM channels WHERE server_id = ? AND (type IS NULL OR type = 'text') LIMIT 1`);
+const checkVoiceChannelStmt = db.prepare(`SELECT id FROM channels WHERE server_id = ? AND type = 'voice' LIMIT 1`);
 const insertChannelStmt = db.prepare(`
-  INSERT INTO channels (server_id, name, created_at)
-  VALUES (?, ?, ?)
+  INSERT INTO channels (server_id, name, type, created_at)
+  VALUES (?, ?, ?, ?)
 `);
 
 for (const s of allServers) {
-  if (!checkChannelStmt.get(s.id)) {
-    insertChannelStmt.run(s.id, 'general', new Date().toISOString());
+  if (!checkTextChannelStmt.get(s.id)) {
+    insertChannelStmt.run(s.id, 'general', 'text', new Date().toISOString());
+  }
+  if (!checkVoiceChannelStmt.get(s.id)) {
+    insertChannelStmt.run(s.id, 'lounge', 'voice', new Date().toISOString());
   }
 }
+
+// Backfill default @everyone role for all servers if missing
+const checkEveryoneRoleStmt = db.prepare(`SELECT id FROM server_roles WHERE server_id = ? AND is_default = 1`);
+const insertEveryoneRoleStmt = db.prepare(`
+  INSERT INTO server_roles (server_id, name, color, position, permissions, is_default, created_at)
+  VALUES (?, '@everyone', '#99aab5', 0, ?, 1, ?)
+`);
+// Default @everyone permissions: VIEW_CHANNELS | SEND_MESSAGES | ATTACH_FILES | ADD_REACTIONS | CONNECT_VOICE | SPEAK_VOICE
+const INITIAL_EVERYONE_PERMS = (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15);
+for (const s of allServers) {
+  if (!checkEveryoneRoleStmt.get(s.id)) {
+    try {
+      insertEveryoneRoleStmt.run(s.id, INITIAL_EVERYONE_PERMS, new Date().toISOString());
+    } catch {}
+  }
+}
+
 
 // Feedback & Community Forum System
 try {
@@ -580,7 +726,8 @@ function canAccessServer(user, serverId) {
 }
 
 const getAllServersStmt = db.prepare(`
-  SELECT id, name, created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
+  SELECT id, name, description, icon_url AS iconUrl, default_channel_id AS defaultChannelId,
+         created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
   FROM servers
   ORDER BY id ASC
 `);
@@ -590,7 +737,8 @@ function getAllServers() {
 }
 
 const getUserServersStmt = db.prepare(`
-  SELECT s.id, s.name, s.created_by AS createdBy, s.created_at AS createdAt
+  SELECT s.id, s.name, s.description, s.icon_url AS iconUrl, s.default_channel_id AS defaultChannelId,
+         s.created_by AS createdBy, s.created_at AS createdAt
   FROM servers s
   JOIN server_members sm ON s.id = sm.server_id
   WHERE sm.user_id = ?
@@ -605,7 +753,8 @@ function getUserServers(userId, isDeveloper = false) {
 }
 
 const getServerByIdStmt = db.prepare(`
-  SELECT id, name, created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
+  SELECT id, name, description, icon_url AS iconUrl, default_channel_id AS defaultChannelId,
+         created_by AS createdBy, created_at AS createdAt, join_code AS joinCode
   FROM servers
   WHERE id = ?
 `);
@@ -657,7 +806,8 @@ function createServer({ name, createdBy }) {
   const result = insertServerStmt.run(cleanName, createdBy || null, createdAt, joinCode);
   const serverId = Number(result.lastInsertRowid);
 
-  insertChannelStmt.run(serverId, 'general', createdAt);
+  insertChannelStmt.run(serverId, 'general', 'text', createdAt);
+  insertChannelStmt.run(serverId, 'lounge', 'voice', createdAt);
 
   if (createdBy) {
     addServerMemberStmt.run(serverId, Number(createdBy), createdAt);
@@ -728,10 +878,12 @@ function regenerateServerJoinCode(serverId) {
 
 // Channel Operations
 const getChannelsByServerStmt = db.prepare(`
-  SELECT id, server_id AS serverId, name, created_at AS createdAt
+  SELECT id, server_id AS serverId, name, COALESCE(type, 'text') AS type,
+         COALESCE(topic, '') AS topic, COALESCE(position, 0) AS position,
+         COALESCE(is_private, 0) AS isPrivate, created_at AS createdAt
   FROM channels
   WHERE server_id = ?
-  ORDER BY id ASC
+  ORDER BY position ASC, CASE WHEN type = 'voice' THEN 1 ELSE 0 END ASC, id ASC
 `);
 
 function getChannelsByServerId(serverId) {
@@ -739,7 +891,9 @@ function getChannelsByServerId(serverId) {
 }
 
 const getChannelByIdStmt = db.prepare(`
-  SELECT id, server_id AS serverId, name, created_at AS createdAt
+  SELECT id, server_id AS serverId, name, COALESCE(type, 'text') AS type,
+         COALESCE(topic, '') AS topic, COALESCE(position, 0) AS position,
+         COALESCE(is_private, 0) AS isPrivate, created_at AS createdAt
   FROM channels
   WHERE id = ?
 `);
@@ -750,7 +904,9 @@ function getChannelById(id) {
 }
 
 const getChannelByNameStmt = db.prepare(`
-  SELECT id, server_id AS serverId, name
+  SELECT id, server_id AS serverId, name, COALESCE(type, 'text') AS type,
+         COALESCE(topic, '') AS topic, COALESCE(position, 0) AS position,
+         COALESCE(is_private, 0) AS isPrivate
   FROM channels
   WHERE server_id = ? AND name = ? COLLATE NOCASE
 `);
@@ -769,7 +925,8 @@ function cleanChannelName(rawName) {
     .slice(0, 32);
 }
 
-function createChannel({ serverId, name }) {
+function createChannel({ serverId, name, type = 'text' }) {
+  const cleanType = (type === 'voice') ? 'voice' : 'text';
   const clean = cleanChannelName(name);
   if (!clean || clean.length < 2) {
     throw new Error('Channel name must be at least 2 characters long.');
@@ -781,15 +938,16 @@ function createChannel({ serverId, name }) {
   }
 
   if (getChannelByName(sId, clean)) {
-    throw new Error(`Channel #${clean} already exists in this server.`);
+    throw new Error(`Channel ${cleanType === 'voice' ? '🔊' : '#'}${clean} already exists in this server.`);
   }
 
   const createdAt = new Date().toISOString();
-  const res = insertChannelStmt.run(sId, clean, createdAt);
+  const res = insertChannelStmt.run(sId, clean, cleanType, createdAt);
   return {
     id: Number(res.lastInsertRowid),
     serverId: sId,
     name: clean,
+    type: cleanType,
     createdAt
   };
 }
@@ -815,6 +973,618 @@ function deleteChannel({ serverId, channelId }) {
   deleteChannelStmt.run(cId, sId);
   return true;
 }
+
+// ----------------------------------------------------
+// Version 5e-server settings: Server Management
+// ----------------------------------------------------
+const updateServerStmt = db.prepare(`
+  UPDATE servers
+  SET name = COALESCE(?, name),
+      description = COALESCE(?, description),
+      icon_url = COALESCE(?, icon_url),
+      default_channel_id = COALESCE(?, default_channel_id)
+  WHERE id = ?
+`);
+
+function updateServer(serverId, { name, description, iconUrl, defaultChannelId }) {
+  const sId = Number(serverId);
+  const server = getServerById(sId);
+  if (!server) throw new Error('Server not found.');
+
+  const cleanName = name !== undefined ? String(name).trim() : null;
+  if (cleanName !== null && (cleanName.length < 2 || cleanName.length > 32)) {
+    throw new Error('Server name must be between 2 and 32 characters long.');
+  }
+
+  const cleanDesc = description !== undefined ? String(description).trim().slice(0, 500) : null;
+  const cleanIcon = iconUrl !== undefined ? (iconUrl ? String(iconUrl).trim() : '') : null;
+  const defChan = defaultChannelId !== undefined ? (defaultChannelId ? Number(defaultChannelId) : null) : null;
+
+  updateServerStmt.run(cleanName, cleanDesc, cleanIcon, defChan, sId);
+  return getServerById(sId);
+}
+
+const deleteServerStmt = db.prepare(`DELETE FROM servers WHERE id = ?`);
+const deleteServerChannelsStmt = db.prepare(`DELETE FROM channels WHERE server_id = ?`);
+const deleteServerMessagesStmt = db.prepare(`DELETE FROM messages WHERE server_id = ?`);
+const deleteServerMembersStmt = db.prepare(`DELETE FROM server_members WHERE server_id = ?`);
+const deleteServerRolesStmt = db.prepare(`DELETE FROM server_roles WHERE server_id = ?`);
+const deleteServerMemberRolesStmt = db.prepare(`DELETE FROM server_member_roles WHERE server_id = ?`);
+const deleteServerBansStmt = db.prepare(`DELETE FROM server_bans WHERE server_id = ?`);
+const deleteServerTimeoutsStmt = db.prepare(`DELETE FROM server_timeouts WHERE server_id = ?`);
+const deleteServerWarningsStmt = db.prepare(`DELETE FROM server_warnings WHERE server_id = ?`);
+const deleteServerAuditLogsStmt = db.prepare(`DELETE FROM server_audit_logs WHERE server_id = ?`);
+
+function deleteServer(serverId) {
+  const sId = Number(serverId);
+  if (sId === 1) {
+    throw new Error('Cannot delete the default General server.');
+  }
+  const server = getServerById(sId);
+  if (!server) throw new Error('Server not found.');
+
+  deleteServerMessagesStmt.run(sId);
+  deleteServerChannelsStmt.run(sId);
+  deleteServerMemberRolesStmt.run(sId);
+  deleteServerRolesStmt.run(sId);
+  deleteServerBansStmt.run(sId);
+  deleteServerTimeoutsStmt.run(sId);
+  deleteServerWarningsStmt.run(sId);
+  deleteServerAuditLogsStmt.run(sId);
+  deleteServerMembersStmt.run(sId);
+  deleteServerStmt.run(sId);
+  return true;
+}
+
+const removeServerMemberStmt = db.prepare(`DELETE FROM server_members WHERE server_id = ? AND user_id = ?`);
+
+function leaveServer(serverId, userId) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+  const server = getServerById(sId);
+  if (!server) throw new Error('Server not found.');
+  if (server.createdBy && Number(server.createdBy) === uId) {
+    throw new Error('Server owners cannot leave their own server. You must transfer ownership or delete the server.');
+  }
+  removeMemberAllRolesStmt.run(sId, uId);
+  removeServerMemberStmt.run(sId, uId);
+  return true;
+}
+
+const updateChannelStmt = db.prepare(`
+  UPDATE channels
+  SET name = COALESCE(?, name),
+      topic = COALESCE(?, topic),
+      position = COALESCE(?, position),
+      is_private = COALESCE(?, is_private)
+  WHERE id = ? AND server_id = ?
+`);
+
+function updateChannel(serverId, channelId, { name, topic, position, isPrivate }) {
+  const sId = Number(serverId);
+  const cId = Number(channelId);
+  const channel = getChannelById(cId);
+  if (!channel || channel.serverId !== sId) {
+    throw new Error('Channel not found in this server.');
+  }
+
+  let cleanName = null;
+  if (name !== undefined) {
+    cleanName = cleanChannelName(name);
+    if (!cleanName || cleanName.length < 2) {
+      throw new Error('Channel name must be at least 2 characters long.');
+    }
+    const existing = getChannelByName(sId, cleanName);
+    if (existing && existing.id !== cId) {
+      throw new Error(`Channel #${cleanName} already exists in this server.`);
+    }
+  }
+
+  const cleanTopic = topic !== undefined ? String(topic).trim().slice(0, 1024) : null;
+  const cleanPos = position !== undefined ? Number(position) : null;
+  const cleanPriv = isPrivate !== undefined ? (isPrivate ? 1 : 0) : null;
+
+  updateChannelStmt.run(cleanName, cleanTopic, cleanPos, cleanPriv, cId, sId);
+  return getChannelById(cId);
+}
+
+// ----------------------------------------------------
+// Version 5e-server settings: Roles & Permissions
+// ----------------------------------------------------
+const PERMISSION_FLAGS = {
+  ADMINISTRATOR:   1 << 0,
+  MANAGE_SERVER:   1 << 1,
+  MANAGE_CHANNELS: 1 << 2,
+  MANAGE_ROLES:    1 << 3,
+  MANAGE_MEMBERS:  1 << 4,
+  VIEW_AUDIT_LOG:  1 << 5,
+  KICK_MEMBERS:    1 << 6,
+  BAN_MEMBERS:     1 << 7,
+  TIMEOUT_MEMBERS: 1 << 8,
+  MANAGE_MESSAGES: 1 << 9,
+  VIEW_CHANNELS:   1 << 10,
+  SEND_MESSAGES:   1 << 11,
+  ATTACH_FILES:    1 << 12,
+  ADD_REACTIONS:   1 << 13,
+  CONNECT_VOICE:   1 << 14,
+  SPEAK_VOICE:     1 << 15
+};
+
+const ALL_PERMISSIONS = Object.values(PERMISSION_FLAGS).reduce((acc, flag) => acc | flag, 0);
+
+const getServerRolesStmt = db.prepare(`
+  SELECT id, server_id AS serverId, name, color, position, permissions,
+         COALESCE(is_default, 0) AS isDefault, created_at AS createdAt
+  FROM server_roles
+  WHERE server_id = ?
+  ORDER BY position DESC, id ASC
+`);
+
+function getServerRoles(serverId) {
+  const sId = Number(serverId);
+  ensureDefaultServerRoles(sId);
+  return getServerRolesStmt.all(sId);
+}
+
+function getRoleById(roleId) {
+  return db.prepare(`
+    SELECT id, server_id AS serverId, name, color, position, permissions,
+           COALESCE(is_default, 0) AS isDefault, created_at AS createdAt
+    FROM server_roles WHERE id = ?
+  `).get(Number(roleId)) || null;
+}
+
+function ensureDefaultServerRoles(serverId) {
+  const sId = Number(serverId);
+  const existing = db.prepare(`SELECT id FROM server_roles WHERE server_id = ? AND is_default = 1`).get(sId);
+  if (!existing) {
+    const defaultPerms = PERMISSION_FLAGS.VIEW_CHANNELS | PERMISSION_FLAGS.SEND_MESSAGES |
+                         PERMISSION_FLAGS.ATTACH_FILES | PERMISSION_FLAGS.ADD_REACTIONS |
+                         PERMISSION_FLAGS.CONNECT_VOICE | PERMISSION_FLAGS.SPEAK_VOICE;
+    db.prepare(`
+      INSERT INTO server_roles (server_id, name, color, position, permissions, is_default, created_at)
+      VALUES (?, '@everyone', '#99aab5', 0, ?, 1, ?)
+    `).run(sId, defaultPerms, new Date().toISOString());
+  }
+}
+
+function createRole({ serverId, name, color = '#99aab5', permissions = 0 }) {
+  const sId = Number(serverId);
+  const cleanName = String(name || 'New Role').trim().slice(0, 32);
+  if (!cleanName) throw new Error('Role name cannot be empty.');
+
+  // Find max position
+  const maxPosRow = db.prepare(`SELECT MAX(position) AS maxPos FROM server_roles WHERE server_id = ?`).get(sId);
+  const nextPos = (maxPosRow && maxPosRow.maxPos !== null) ? Number(maxPosRow.maxPos) + 1 : 1;
+
+  const now = new Date().toISOString();
+  const res = db.prepare(`
+    INSERT INTO server_roles (server_id, name, color, position, permissions, is_default, created_at)
+    VALUES (?, ?, ?, ?, ?, 0, ?)
+  `).run(sId, cleanName, color || '#99aab5', nextPos, Number(permissions) || 0, now);
+
+  return getRoleById(Number(res.lastInsertRowid));
+}
+
+function updateRole(serverId, roleId, { name, color, position, permissions }) {
+  const sId = Number(serverId);
+  const rId = Number(roleId);
+  const role = getRoleById(rId);
+  if (!role || role.serverId !== sId) throw new Error('Role not found.');
+
+  let cleanName = role.name;
+  if (name !== undefined) {
+    if (role.isDefault) {
+      cleanName = '@everyone'; // protect default role name
+    } else {
+      cleanName = String(name).trim().slice(0, 32);
+      if (!cleanName) throw new Error('Role name cannot be empty.');
+    }
+  }
+
+  const cleanColor = color !== undefined ? String(color).trim() : role.color;
+  const cleanPos = position !== undefined ? (role.isDefault ? 0 : Number(position)) : role.position;
+  const cleanPerms = permissions !== undefined ? Number(permissions) : role.permissions;
+
+  db.prepare(`
+    UPDATE server_roles
+    SET name = ?, color = ?, position = ?, permissions = ?
+    WHERE id = ? AND server_id = ?
+  `).run(cleanName, cleanColor, cleanPos, cleanPerms, rId, sId);
+
+  return getRoleById(rId);
+}
+
+function deleteRole(serverId, roleId) {
+  const sId = Number(serverId);
+  const rId = Number(roleId);
+  const role = getRoleById(rId);
+  if (!role || role.serverId !== sId) throw new Error('Role not found.');
+  if (role.isDefault) throw new Error('Cannot delete the default @everyone role.');
+
+  db.prepare(`DELETE FROM server_member_roles WHERE role_id = ?`).run(rId);
+  db.prepare(`DELETE FROM server_roles WHERE id = ?`).run(rId);
+  return true;
+}
+
+const getMemberRolesStmt = db.prepare(`
+  SELECT r.id, r.name, r.color, r.position, r.permissions, r.is_default AS isDefault
+  FROM server_member_roles smr
+  JOIN server_roles r ON smr.role_id = r.id
+  WHERE smr.server_id = ? AND smr.user_id = ?
+  ORDER BY r.position DESC
+`);
+
+function getMemberRoles(serverId, userId) {
+  return getMemberRolesStmt.all(Number(serverId), Number(userId));
+}
+
+function assignMemberRole(serverId, userId, roleId) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+  const rId = Number(roleId);
+  const role = getRoleById(rId);
+  if (!role || role.serverId !== sId) throw new Error('Role not found.');
+  if (role.isDefault) return true; // everyone already has @everyone implicitly
+
+  db.prepare(`
+    INSERT OR IGNORE INTO server_member_roles (server_id, user_id, role_id, assigned_at)
+    VALUES (?, ?, ?, ?)
+  `).run(sId, uId, rId, new Date().toISOString());
+  return true;
+}
+
+function removeMemberRole(serverId, userId, roleId) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+  const rId = Number(roleId);
+  db.prepare(`
+    DELETE FROM server_member_roles
+    WHERE server_id = ? AND user_id = ? AND role_id = ?
+  `).run(sId, uId, rId);
+  return true;
+}
+
+const removeMemberAllRolesStmt = db.prepare(`
+  DELETE FROM server_member_roles WHERE server_id = ? AND user_id = ?
+`);
+
+function computeUserPermissions(userId, serverId) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+
+  const server = getServerById(sId);
+  if (!server) return 0;
+
+  // Server Owner always receives ALL permissions
+  if (server.createdBy && Number(server.createdBy) === uId) {
+    return ALL_PERMISSIONS;
+  }
+
+  // Developer accounts receive ALL permissions
+  const user = getUserById(uId);
+  if (user && user.isDeveloper) {
+    return ALL_PERMISSIONS;
+  }
+
+  // If not a member, 0
+  if (!isServerMember(sId, uId)) {
+    return 0;
+  }
+
+  // Start with default @everyone permissions
+  ensureDefaultServerRoles(sId);
+  const everyoneRole = db.prepare(`SELECT permissions FROM server_roles WHERE server_id = ? AND is_default = 1`).get(sId);
+  let perms = everyoneRole ? Number(everyoneRole.permissions) : 0;
+
+  // Union all assigned roles
+  const memberRoles = getMemberRoles(sId, uId);
+  for (const r of memberRoles) {
+    perms |= Number(r.permissions);
+  }
+
+  // Administrator bit grants everything
+  if ((perms & PERMISSION_FLAGS.ADMINISTRATOR) !== 0) {
+    return ALL_PERMISSIONS;
+  }
+
+  return perms;
+}
+
+function hasPermission(userId, serverId, flag) {
+  const perms = computeUserPermissions(userId, serverId);
+  return (perms & flag) !== 0 || (perms & PERMISSION_FLAGS.ADMINISTRATOR) !== 0;
+}
+
+function getHighestRolePosition(userId, serverId) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+  const server = getServerById(sId);
+  if (server && server.createdBy && Number(server.createdBy) === uId) {
+    return 999999; // Owner is always top
+  }
+  const user = getUserById(uId);
+  if (user && user.isDeveloper) {
+    return 999998; // Developer is top
+  }
+  const roles = getMemberRoles(sId, uId);
+  if (!roles || roles.length === 0) return 0;
+  return Math.max(...roles.map(r => Number(r.position)));
+}
+
+// ----------------------------------------------------
+// Version 5e-server settings: Moderation (Timeouts, Bans, Warnings)
+// ----------------------------------------------------
+const insertTimeoutStmt = db.prepare(`
+  INSERT INTO server_timeouts (server_id, user_id, timed_out_by, expires_at, reason, created_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(server_id, user_id) DO UPDATE SET
+    timed_out_by = excluded.timed_out_by,
+    expires_at = excluded.expires_at,
+    reason = excluded.reason,
+    created_at = excluded.created_at
+`);
+
+function timeoutMember({ serverId, userId, timedOutBy, durationSeconds, reason = '' }) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+  const byId = Number(timedOutBy);
+  const seconds = Number(durationSeconds) || 60;
+  const expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
+  const now = new Date().toISOString();
+
+  insertTimeoutStmt.run(sId, uId, byId, expiresAt, String(reason || '').trim().slice(0, 500), now);
+  return { serverId: sId, userId: uId, expiresAt, reason };
+}
+
+const deleteTimeoutStmt = db.prepare(`DELETE FROM server_timeouts WHERE server_id = ? AND user_id = ?`);
+
+function removeTimeout(serverId, userId) {
+  deleteTimeoutStmt.run(Number(serverId), Number(userId));
+  return true;
+}
+
+function isMemberTimedOut(serverId, userId) {
+  const row = db.prepare(`SELECT expires_at FROM server_timeouts WHERE server_id = ? AND user_id = ?`).get(Number(serverId), Number(userId));
+  if (!row) return false;
+  const isExpired = new Date(row.expires_at).getTime() <= Date.now();
+  if (isExpired) {
+    deleteTimeoutStmt.run(Number(serverId), Number(userId));
+    return false;
+  }
+  return true;
+}
+
+const insertBanStmt = db.prepare(`
+  INSERT INTO server_bans (server_id, user_id, banned_by, reason, created_at)
+  VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(server_id, user_id) DO UPDATE SET
+    banned_by = excluded.banned_by,
+    reason = excluded.reason,
+    created_at = excluded.created_at
+`);
+
+function banMember({ serverId, userId, bannedBy, reason = '' }) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+  const byId = Number(bannedBy);
+  const now = new Date().toISOString();
+
+  // Remove from server members
+  removeServerMemberStmt.run(sId, uId);
+  removeMemberAllRolesStmt.run(sId, uId);
+  deleteTimeoutStmt.run(sId, uId);
+
+  insertBanStmt.run(sId, uId, byId, String(reason || '').trim().slice(0, 500), now);
+  return { serverId: sId, userId: uId, reason };
+}
+
+const deleteBanStmt = db.prepare(`DELETE FROM server_bans WHERE server_id = ? AND user_id = ?`);
+
+function unbanMember(serverId, userId) {
+  deleteBanStmt.run(Number(serverId), Number(userId));
+  return true;
+}
+
+function isUserBanned(serverId, userId) {
+  const row = db.prepare(`SELECT id FROM server_bans WHERE server_id = ? AND user_id = ?`).get(Number(serverId), Number(userId));
+  return Boolean(row);
+}
+
+function getServerBans(serverId) {
+  const sId = Number(serverId);
+  return db.prepare(`
+    SELECT sb.id, sb.server_id AS serverId, sb.user_id AS userId, sb.banned_by AS bannedBy,
+           sb.reason, sb.created_at AS createdAt,
+           u.username, u.display_name AS displayName, u.avatar_url AS avatarUrl,
+           mod.display_name AS bannedByName, mod.username AS bannedByUsername
+    FROM server_bans sb
+    JOIN users u ON sb.user_id = u.id
+    LEFT JOIN users mod ON sb.banned_by = mod.id
+    WHERE sb.server_id = ?
+    ORDER BY sb.id DESC
+  `).all(sId);
+}
+
+function warnMember({ serverId, userId, warnedBy, reason }) {
+  const sId = Number(serverId);
+  const uId = Number(userId);
+  const byId = Number(warnedBy);
+  const cleanReason = String(reason || 'Warning issued').trim().slice(0, 500);
+  const now = new Date().toISOString();
+
+  const res = db.prepare(`
+    INSERT INTO server_warnings (server_id, user_id, warned_by, reason, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(sId, uId, byId, cleanReason, now);
+
+  return { id: Number(res.lastInsertRowid), serverId: sId, userId: uId, reason: cleanReason, createdAt: now };
+}
+
+// ----------------------------------------------------
+// Version 5e-server settings: Audit Logs
+// ----------------------------------------------------
+const insertAuditLogStmt = db.prepare(`
+  INSERT INTO server_audit_logs (server_id, actor_id, action, target_id, target_type, reason, changes_json, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+function logServerAudit({ serverId, actorId, action, targetId = null, targetType = null, reason = '', changes = {} }) {
+  const sId = Number(serverId);
+  const aId = Number(actorId);
+  const now = new Date().toISOString();
+  const changesStr = typeof changes === 'string' ? changes : JSON.stringify(changes || {});
+
+  insertAuditLogStmt.run(
+    sId, aId, String(action || 'UNKNOWN'),
+    targetId ? Number(targetId) : null,
+    targetType ? String(targetType) : null,
+    String(reason || '').trim().slice(0, 500),
+    changesStr,
+    now
+  );
+}
+
+function getServerAuditLogs(serverId, limit = 100) {
+  const sId = Number(serverId);
+  const rows = db.prepare(`
+    SELECT sal.id, sal.server_id AS serverId, sal.actor_id AS actorId,
+           sal.action, sal.target_id AS targetId, sal.target_type AS targetType,
+           sal.reason, sal.changes_json AS changesJson, sal.created_at AS createdAt,
+           u.display_name AS actorDisplayName, u.username AS actorUsername, u.avatar_url AS actorAvatarUrl
+    FROM server_audit_logs sal
+    LEFT JOIN users u ON sal.actor_id = u.id
+    WHERE sal.server_id = ?
+    ORDER BY sal.id DESC
+    LIMIT ?
+  `).all(sId, limit);
+
+  return rows.map(r => {
+    let parsedChanges = {};
+    try { parsedChanges = JSON.parse(r.changesJson || '{}'); } catch {}
+    return {
+      ...r,
+      changes: parsedChanges
+    };
+  });
+}
+
+// ----------------------------------------------------
+// Stickers & Custom Emojis Operations
+// ----------------------------------------------------
+function getStickers(serverId = null) {
+  let rows;
+  if (serverId) {
+    rows = db.prepare(`
+      SELECT s.id, s.server_id AS serverId, s.name, s.description, s.tags,
+             s.file_url AS fileUrl, s.file_format AS fileFormat,
+             s.created_by AS createdBy, s.created_at AS createdAt,
+             u.username AS creatorUsername
+      FROM stickers s
+      LEFT JOIN users u ON s.created_by = u.id
+      WHERE s.server_id = ? OR s.server_id IS NULL
+      ORDER BY s.server_id IS NOT NULL DESC, s.name ASC
+    `).all(Number(serverId));
+  } else {
+    rows = db.prepare(`
+      SELECT s.id, s.server_id AS serverId, s.name, s.description, s.tags,
+             s.file_url AS fileUrl, s.file_format AS fileFormat,
+             s.created_by AS createdBy, s.created_at AS createdAt,
+             u.username AS creatorUsername
+      FROM stickers s
+      LEFT JOIN users u ON s.created_by = u.id
+      WHERE s.server_id IS NULL
+      ORDER BY s.name ASC
+    `).all();
+  }
+  return rows;
+}
+
+function getStickerById(stickerId) {
+  return db.prepare(`
+    SELECT s.id, s.server_id AS serverId, s.name, s.description, s.tags,
+           s.file_url AS fileUrl, s.file_format AS fileFormat,
+           s.created_by AS createdBy, s.created_at AS createdAt,
+           u.username AS creatorUsername
+    FROM stickers s
+    LEFT JOIN users u ON s.created_by = u.id
+    WHERE s.id = ?
+  `).get(Number(stickerId)) || null;
+}
+
+function createSticker({ serverId = null, name, description = '', tags = '', fileUrl, fileFormat = 'png', createdBy = null }) {
+  const cleanName = String(name || '').trim().slice(0, 32);
+  if (!cleanName || cleanName.length < 2) {
+    throw new Error('Sticker name must be between 2 and 32 characters.');
+  }
+  if (!fileUrl) throw new Error('Sticker image is required.');
+
+  const now = new Date().toISOString();
+  const res = db.prepare(`
+    INSERT INTO stickers (server_id, name, description, tags, file_url, file_format, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    serverId ? Number(serverId) : null,
+    cleanName,
+    String(description || '').trim().slice(0, 128),
+    String(tags || '').trim().slice(0, 200),
+    String(fileUrl).trim(),
+    String(fileFormat || 'png').toLowerCase(),
+    createdBy ? Number(createdBy) : null,
+    now
+  );
+
+  return getStickerById(Number(res.lastInsertRowid));
+}
+
+function deleteSticker(stickerId) {
+  const res = db.prepare(`DELETE FROM stickers WHERE id = ?`).run(Number(stickerId));
+  return res.changes > 0;
+}
+
+function getCustomEmojis(serverId = null) {
+  let rows;
+  if (serverId) {
+    rows = db.prepare(`
+      SELECT ce.id, ce.server_id AS serverId, ce.code, ce.image_url AS imageUrl,
+             ce.created_by AS createdBy, ce.created_at AS createdAt
+      FROM custom_emojis ce
+      WHERE ce.server_id = ? OR ce.server_id IS NULL
+      ORDER BY ce.code ASC
+    `).all(Number(serverId));
+  } else {
+    rows = db.prepare(`
+      SELECT ce.id, ce.server_id AS serverId, ce.code, ce.image_url AS imageUrl,
+             ce.created_by AS createdBy, ce.created_at AS createdAt
+      FROM custom_emojis ce
+      WHERE ce.server_id IS NULL
+      ORDER BY ce.code ASC
+    `).all();
+  }
+  return rows;
+}
+
+function createCustomEmoji({ serverId = null, code, imageUrl, createdBy = null }) {
+  const cleanCode = String(code || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32);
+  if (!cleanCode || cleanCode.length < 2) {
+    throw new Error('Emoji code must be alphanumeric and between 2 and 32 characters.');
+  }
+  if (!imageUrl) throw new Error('Emoji image is required.');
+
+  const now = new Date().toISOString();
+  const res = db.prepare(`
+    INSERT INTO custom_emojis (server_id, code, image_url, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(serverId ? Number(serverId) : null, cleanCode, String(imageUrl).trim(), createdBy ? Number(createdBy) : null, now);
+
+  return db.prepare(`SELECT * FROM custom_emojis WHERE id = ?`).get(Number(res.lastInsertRowid));
+}
+
+function deleteCustomEmoji(emojiId) {
+  const res = db.prepare(`DELETE FROM custom_emojis WHERE id = ?`).run(Number(emojiId));
+  return res.changes > 0;
+}
+
 
 // Friend System Operations
 const findExistingFriendshipStmt = db.prepare(`
@@ -1383,6 +2153,7 @@ function hasUserSubmittedFeedback(userId) {
 
 function getServerMembers(serverId) {
   const sId = Number(serverId);
+  const server = getServerById(sId);
   const rows = db.prepare(`
     SELECT u.id, u.username, u.display_name AS displayName, u.avatar_url AS avatarUrl,
            u.is_developer AS isDeveloper, sm.role AS role, sm.joined_at AS joinedAt,
@@ -1399,22 +2170,34 @@ function getServerMembers(serverId) {
       CASE WHEN u.id = s.created_by THEN 0 WHEN sm.role = 'admin' THEN 1 ELSE 2 END ASC,
       u.display_name ASC
   `).all(sId);
-  return rows.map(r => ({
-    id: r.id,
-    username: r.username,
-    displayName: r.displayName,
-    avatarUrl: r.avatarUrl,
-    isDeveloper: Boolean(r.isDeveloper),
-    role: (r.id === r.ownerId || r.role === 'admin') ? 'admin' : 'member',
-    isOwner: r.id === r.ownerId,
-    status: r.status || 'online',
-    customStatus: (r.customStatusText || r.customStatusEmoji) ? {
-      text: r.customStatusText || '',
-      emoji: r.customStatusEmoji || '',
-      expiresAt: r.customStatusExpiresAt || null
-    } : null
-  }));
+
+  return rows.map(r => {
+    const isOwner = Boolean(server && server.createdBy && Number(server.createdBy) === r.id);
+    const assignedRoles = getMemberRoles(sId, r.id);
+    const timedOut = isMemberTimedOut(sId, r.id);
+    const highestPos = isOwner ? 999999 : (r.isDeveloper ? 999998 : (assignedRoles.length > 0 ? Math.max(...assignedRoles.map(x => Number(x.position))) : 0));
+
+    return {
+      id: r.id,
+      username: r.username,
+      displayName: r.displayName,
+      avatarUrl: r.avatarUrl,
+      isDeveloper: Boolean(r.isDeveloper),
+      role: (isOwner || r.role === 'admin') ? 'admin' : 'member',
+      isOwner,
+      roles: assignedRoles,
+      highestRolePosition: highestPos,
+      isTimedOut: timedOut,
+      status: r.status || 'online',
+      customStatus: (r.customStatusText || r.customStatusEmoji) ? {
+        text: r.customStatusText || '',
+        emoji: r.customStatusEmoji || '',
+        expiresAt: r.customStatusExpiresAt || null
+      } : null
+    };
+  });
 }
+
 
 // ==========================================
 // NOTIFICATIONS SYSTEM
@@ -1719,5 +2502,43 @@ module.exports = {
   clearAllNotifications,
   updateUserStatus,
   clearUserCustomStatus,
-  clearExpiredCustomStatuses
+  clearExpiredCustomStatuses,
+  // Version 5e-server settings exports
+  PERMISSION_FLAGS,
+  ALL_PERMISSIONS,
+  updateServer,
+  deleteServer,
+  leaveServer,
+  updateChannel,
+  getServerRoles,
+  getRoleById,
+  ensureDefaultServerRoles,
+  createRole,
+  updateRole,
+  deleteRole,
+  getMemberRoles,
+  assignMemberRole,
+  removeMemberRole,
+  computeUserPermissions,
+  hasPermission,
+  getHighestRolePosition,
+  timeoutMember,
+  removeTimeout,
+  isMemberTimedOut,
+  banMember,
+  unbanMember,
+  isUserBanned,
+  getServerBans,
+  warnMember,
+  logServerAudit,
+  getServerAuditLogs,
+  // Stickers & Custom Emojis
+  getStickers,
+  getStickerById,
+  createSticker,
+  deleteSticker,
+  getCustomEmojis,
+  createCustomEmoji,
+  deleteCustomEmoji
 };
+

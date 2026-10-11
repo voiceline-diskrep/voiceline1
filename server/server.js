@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
@@ -31,9 +32,11 @@ const CLIENT_DIR = path.join(__dirname, '..', 'client');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
 const ATTACHMENTS_DIR = path.join(UPLOADS_DIR, 'attachments');
+const STICKERS_DIR = path.join(UPLOADS_DIR, 'stickers');
 
 try {
   fs.mkdirSync(AVATARS_DIR, { recursive: true });
+  fs.mkdirSync(STICKERS_DIR, { recursive: true });
   fs.mkdirSync(path.join(ATTACHMENTS_DIR, 'servers'), { recursive: true });
   fs.mkdirSync(path.join(ATTACHMENTS_DIR, 'dms'), { recursive: true });
 } catch {}
@@ -91,7 +94,10 @@ function readJsonBody(req) {
 function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate'
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': '*'
   });
   res.end(JSON.stringify(data));
 }
@@ -104,10 +110,150 @@ function getTokenFromReq(req) {
   return null;
 }
 
+// Public / fallback GIPHY API key & Curated catalog
+const DEFAULT_GIPHY_KEY = 'sXpGFDGZs0Dv1mmNFvYaGUvYwKX0PWIh';
+
+const CURATED_GIFS = [
+  { id: 'nXxOjZrbnbRxS', title: 'Minions Cheering', tags: ['excited', 'cheer', 'celebrate', 'happy', 'trending'], width: 500, height: 281 },
+  { id: '26n6Gx9moCgs1pUuk', title: 'Elmo Laughing Hard', tags: ['lol', 'laugh', 'haha', 'rofl', 'funny'], width: 480, height: 360 },
+  { id: 'd2lcHJTG5Tscg', title: 'Crying Sad Cat', tags: ['sad', 'cry', 'tears', 'cats'], width: 480, height: 360 },
+  { id: 'OPU6wzx8JrHna', title: 'Tears Streaming Sad', tags: ['sad', 'cry', 'crying', 'tears'], width: 480, height: 270 },
+  { id: 'blSTtZehjAZ8I', title: 'Snoopy Happy Dance', tags: ['dance', 'party', 'happy', 'vibe', 'trending'], width: 500, height: 375 },
+  { id: '26BRv0ThflsHCqDrG', title: 'Heart Love Kiss', tags: ['love', 'heart', 'kiss', 'affection'], width: 480, height: 270 },
+  { id: 'pHb82xtBPfqEg', title: 'Epic High Five GG', tags: ['gg', 'highfive', 'win', 'good_game', 'trending'], width: 500, height: 281 },
+  { id: '3oEjI6SIIHBdRxXI40', title: 'Classic Facepalm', tags: ['facepalm', 'smh', 'disbelief', 'sigh'], width: 480, height: 270 },
+  { id: 'JIX9t2j0ZTN9S', title: 'Bongo Cat Typing', tags: ['cats', 'cat', 'bongo', 'typing', 'cute'], width: 480, height: 270 },
+  { id: '11vDNL1PrUUo0', title: 'Anime Wow Eyes', tags: ['anime', 'wow', 'excited', 'sparkle'], width: 480, height: 270 },
+  { id: 'xT9IgzoKnwFNmISR8I', title: 'Anime Happy Run', tags: ['anime', 'happy', 'cute'], width: 480, height: 270 },
+  { id: '13HgwGsXF0aiGY', title: 'Baby Bye Wave', tags: ['bye', 'wave', 'farewell', 'goodbye'], width: 480, height: 270 },
+  { id: '9M5jK4GXmD5o1irGrF', title: 'This Is Fine Dog In Fire', tags: ['trending', 'fine', 'fire', 'dog', 'okay'], width: 480, height: 270 },
+  { id: '26ufdipQqU2lhNA4g', title: 'Mind Blown Galaxy', tags: ['mindblown', 'shocked', 'explosion', 'trending'], width: 480, height: 270 },
+  { id: 'gl0mkIZOW6Nwc', title: 'Eating Popcorn Drama', tags: ['popcorn', 'drama', 'watching', 'trending'], width: 480, height: 270 },
+  { id: 'l3q2K5jinAlChoCLS', title: 'Thumbs Up Approval', tags: ['thumbsup', 'good', 'approved', 'yes', 'gg'], width: 480, height: 270 },
+  { id: 'g9582DNuQppxC', title: 'Dancing Baby Groot', tags: ['dance', 'marvel', 'groot', 'cute'], width: 480, height: 270 },
+  { id: '3oKIPnAiaMCws8nOsE', title: 'Shocked Dog Eyes', tags: ['shocked', 'dogs', 'gasp', 'surprise'], width: 480, height: 270 },
+  { id: 'xT9IgG50Fb7Mi0prBC', title: 'Cute Bear Hug', tags: ['love', 'hug', 'warmth', 'friend'], width: 480, height: 270 }
+];
+
+function getCuratedGifs(query = '', limit = 24, offset = 0) {
+  const q = String(query || '').trim().toLowerCase();
+  let list = CURATED_GIFS;
+
+  if (q && q !== 'trending') {
+    const filtered = CURATED_GIFS.filter(g => {
+      const matchTitle = g.title.toLowerCase().includes(q);
+      const matchTag = g.tags.some(t => t.toLowerCase().includes(q) || q.includes(t.toLowerCase()));
+      return matchTitle || matchTag;
+    });
+    if (filtered.length > 0) {
+      list = filtered;
+    }
+  }
+
+  const paged = list.slice(offset, offset + limit);
+  return paged.map(g => ({
+    id: g.id,
+    title: g.title,
+    url: `https://media.giphy.com/media/${g.id}/giphy.gif`,
+    previewUrl: `https://media.giphy.com/media/${g.id}/200w.gif`,
+    width: g.width,
+    height: g.height
+  }));
+}
+
+async function fetchGiphyTrending(limit = 24, offset = 0) {
+  const key = (process.env.GIPHY_API_KEY || DEFAULT_GIPHY_KEY).trim();
+  try {
+    const res = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${encodeURIComponent(key)}&limit=${limit}&offset=${offset}&rating=g`, {
+      signal: AbortSignal.timeout(6000)
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json && Array.isArray(json.data) && json.data.length > 0) {
+        return json.data.map(item => ({
+          id: item.id,
+          title: item.title || 'GIF',
+          url: item.images?.downsized?.url || item.images?.original?.url || item.images?.fixed_height?.url,
+          previewUrl: item.images?.fixed_width?.url || item.images?.fixed_height?.url || item.images?.downsized?.url,
+          width: item.images?.fixed_width?.width || 200,
+          height: item.images?.fixed_width?.height || 200
+        }));
+      }
+    }
+  } catch (err) {
+    console.warn('[Voiceline] GIPHY trending fetch failed:', err.message);
+  }
+  return null;
+}
+
+async function fetchGiphySearch(query, limit = 24, offset = 0) {
+  const key = (process.env.GIPHY_API_KEY || DEFAULT_GIPHY_KEY).trim();
+  try {
+    const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(key)}&q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}&rating=g`, {
+      signal: AbortSignal.timeout(6000)
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json && Array.isArray(json.data) && json.data.length > 0) {
+        return json.data.map(item => ({
+          id: item.id,
+          title: item.title || 'GIF',
+          url: item.images?.downsized?.url || item.images?.original?.url || item.images?.fixed_height?.url,
+          previewUrl: item.images?.fixed_width?.url || item.images?.fixed_height?.url || item.images?.downsized?.url,
+          width: item.images?.fixed_width?.width || 200,
+          height: item.images?.fixed_width?.height || 200
+        }));
+      }
+    }
+  } catch (err) {
+    console.warn('[Voiceline] GIPHY search fetch failed:', err.message);
+  }
+  return null;
+}
+
+async function fetchTenorGifs(query = '', limit = 24) {
+  try {
+    const q = encodeURIComponent(query.trim().replace(/\s+/g, '-'));
+    const url = q ? `https://tenor.com/search/${q}-gifs` : 'https://tenor.com';
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const matches = [...new Set([...html.matchAll(/https:\/\/media\.tenor\.com\/[a-zA-Z0-9_\-\/]+\.gif/g)].map(m => m[0]))];
+    if (matches.length === 0) return null;
+    return matches.slice(0, limit).map((gifUrl, idx) => ({
+      id: `tenor_${idx}_${Date.now()}`,
+      title: query || 'GIF',
+      url: gifUrl,
+      previewUrl: gifUrl,
+      width: 200,
+      height: 200
+    }));
+  } catch (err) {
+    console.warn('[Voiceline] Tenor fallback fetch failed:', err.message);
+    return null;
+  }
+}
+
 // 1. HTTP Server & REST API
 const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = urlObj.pathname;
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': '*'
+    });
+    return res.end();
+  }
+
+  if (pathname === '/api/health') {
+    return sendJson(res, 200, { status: 'ok', online: true });
+  }
 
   if (pathname.startsWith('/api/')) {
     try {
@@ -336,6 +482,10 @@ const server = http.createServer(async (req, res) => {
 
         const { code } = await readJsonBody(req);
         try {
+          const targetServer = db.getServerByJoinCode(code);
+          if (targetServer && db.isUserBanned(targetServer.id, user.id)) {
+            return sendJson(res, 403, { error: 'You are banned from this server and cannot rejoin.' });
+          }
           const result = db.joinServerByCode({ userId: user.id, code });
           return sendJson(res, 200, { success: true, ...result });
         } catch (err) {
@@ -383,18 +533,51 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { channels });
       }
 
-      // POST /api/servers/:serverId/channels (Create channel - Developer only)
+      // GET /api/servers/:serverId/voice-states (Active voice participants per channel)
+      const voiceStatesMatch = pathname.match(/^\/api\/servers\/(\d+)\/voice-states$/);
+      if (req.method === 'GET' && voiceStatesMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+        const serverId = Number(voiceStatesMatch[1]);
+        if (!db.canAccessServer(user, serverId)) {
+          return sendJson(res, 403, { error: 'You are not a member of this server.' });
+        }
+        const states = getServerVoiceStates(serverId);
+        return sendJson(res, 200, { states });
+      }
+
+      // POST /api/servers/:serverId/channels (Create channel - Owner or Developer)
       if (req.method === 'POST' && channelsMatch) {
         const token = getTokenFromReq(req);
         const user = db.getUserByToken(token);
-        if (!user || !user.isDeveloper) {
-          return sendJson(res, 403, { error: 'Only developer accounts can create channels.' });
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+        const serverId = Number(channelsMatch[1]);
+        const server = db.getServerById(serverId);
+        if (!server) {
+          return sendJson(res, 404, { error: 'Server not found' });
+        }
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManage = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_CHANNELS);
+        if (!canManage) {
+          return sendJson(res, 403, { error: 'You lack permission to create channels in this server.' });
         }
 
-        const serverId = Number(channelsMatch[1]);
-        const { name } = await readJsonBody(req);
+        const { name, type } = await readJsonBody(req);
         try {
-          const channel = db.createChannel({ serverId, name });
+          const channel = db.createChannel({ serverId, name, type });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'CHANNEL_CREATE',
+            targetId: channel.id,
+            targetType: 'channel',
+            changes: { name: channel.name, type: channel.type }
+          });
           broadcastToServer(serverId, {
             type: 'channel_created',
             serverId: serverId,
@@ -406,19 +589,93 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      // DELETE /api/servers/:serverId/channels/:channelId (Delete channel - Developer only)
+      // PATCH /api/servers/:serverId/channels/:channelId (Update channel)
+      const patchChannelMatch = pathname.match(/^\/api\/servers\/(\d+)\/channels\/(\d+)$/);
+      if (req.method === 'PATCH' && patchChannelMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
+        }
+        const serverId = Number(patchChannelMatch[1]);
+        const channelId = Number(patchChannelMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) {
+          return sendJson(res, 404, { error: 'Server not found' });
+        }
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManage = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_CHANNELS);
+        if (!canManage) {
+          return sendJson(res, 403, { error: 'You lack permission to edit channels in this server.' });
+        }
+
+        const { name, topic, position, isPrivate } = await readJsonBody(req);
+        try {
+          const oldChan = db.getChannelById(channelId);
+          const updated = db.updateChannel(serverId, channelId, { name, topic, position, isPrivate });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'CHANNEL_UPDATE',
+            targetId: channelId,
+            targetType: 'channel',
+            changes: { before: { name: oldChan?.name, topic: oldChan?.topic }, after: { name: updated.name, topic: updated.topic } }
+          });
+          broadcastToServer(serverId, {
+            type: 'channel_updated',
+            serverId,
+            channel: updated
+          });
+          return sendJson(res, 200, { success: true, channel: updated });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/servers/:serverId/channels/:channelId (Delete channel)
       const deleteChannelMatch = pathname.match(/^\/api\/servers\/(\d+)\/channels\/(\d+)$/);
       if (req.method === 'DELETE' && deleteChannelMatch) {
         const token = getTokenFromReq(req);
         const user = db.getUserByToken(token);
-        if (!user || !user.isDeveloper) {
-          return sendJson(res, 403, { error: 'Only developer accounts can delete channels.' });
+        if (!user) {
+          return sendJson(res, 401, { error: 'Not authenticated' });
         }
-
         const serverId = Number(deleteChannelMatch[1]);
         const channelId = Number(deleteChannelMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) {
+          return sendJson(res, 404, { error: 'Server not found' });
+        }
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManage = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_CHANNELS);
+        if (!canManage) {
+          return sendJson(res, 403, { error: 'You lack permission to delete channels in this server.' });
+        }
+
         try {
+          const oldChan = db.getChannelById(channelId);
+          if (activeServerVoiceChannels.has(channelId)) {
+            const participants = activeServerVoiceChannels.get(channelId);
+            if (participants) {
+              for (const p of participants.values()) {
+                const client = getClientByUserId(p.userId);
+                if (client) {
+                  client.send(JSON.stringify({ type: 'server_voice_left', reason: 'channel_deleted' }));
+                }
+                userServerVoiceMap.delete(p.userId);
+              }
+            }
+            activeServerVoiceChannels.delete(channelId);
+          }
           db.deleteChannel({ serverId, channelId });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'CHANNEL_DELETE',
+            targetId: channelId,
+            targetType: 'channel',
+            changes: { name: oldChan?.name }
+          });
           broadcastToServer(serverId, {
             type: 'channel_deleted',
             serverId: serverId,
@@ -429,6 +686,754 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: err.message });
         }
       }
+
+      // ==========================================
+      // Version 5e-server settings: Server Settings & Management API
+      // ==========================================
+
+      // GET /api/servers/:serverId (Get server info & user's permissions)
+      const serverDetailsMatch = pathname.match(/^\/api\/servers\/(\d+)$/);
+      if (req.method === 'GET' && serverDetailsMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(serverDetailsMatch[1]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+        if (!db.canAccessServer(user, serverId)) return sendJson(res, 403, { error: 'You are not a member of this server.' });
+
+        const perms = db.computeUserPermissions(user.id, serverId);
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const highestRolePos = db.getHighestRolePosition(user.id, serverId);
+
+        return sendJson(res, 200, {
+          server: {
+            ...server,
+            isOwner,
+            permissions: perms,
+            highestRolePosition: highestRolePos
+          }
+        });
+      }
+
+      // PATCH /api/servers/:serverId (Update server overview: name, description, icon)
+      if (req.method === 'PATCH' && serverDetailsMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(serverDetailsMatch[1]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManage = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_SERVER);
+        if (!canManage) return sendJson(res, 403, { error: 'You lack permission to manage this server.' });
+
+        const { name, description, iconBase64, iconFilename, removeIcon, defaultChannelId } = await readJsonBody(req);
+
+        let newIconUrl = server.iconUrl || null;
+        if (removeIcon) {
+          if (server.iconUrl && server.iconUrl.startsWith('/uploads/avatars/')) {
+            const oldFile = path.join(UPLOADS_DIR, server.iconUrl.replace(/^\/uploads\//, ''));
+            try { if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile); } catch {}
+          }
+          newIconUrl = '';
+        } else if (iconBase64) {
+          const matches = iconBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          const mimeType = matches ? matches[1].toLowerCase() : '';
+          const rawData = matches ? matches[2] : iconBase64;
+          const extFromName = (iconFilename || '').split('.').pop().toLowerCase();
+          let ext = 'png';
+          if (mimeType.includes('jpeg') || mimeType.includes('jpg') || extFromName === 'jpg' || extFromName === 'jpeg') ext = 'jpg';
+          else if (mimeType.includes('webp') || extFromName === 'webp') ext = 'webp';
+          else if (mimeType.includes('gif') || extFromName === 'gif') ext = 'gif';
+          else if (mimeType.includes('png') || extFromName === 'png') ext = 'png';
+          else return sendJson(res, 400, { error: 'Invalid icon format. Supported: PNG, JPEG, WebP, GIF.' });
+
+          const buffer = Buffer.from(rawData, 'base64');
+          if (buffer.length > 2 * 1024 * 1024) return sendJson(res, 400, { error: 'Icon file too large. Maximum size is 2 MB.' });
+
+          const newFilename = `server_icon_${serverId}_${Date.now()}.${ext}`;
+          const newFilePath = path.join(AVATARS_DIR, newFilename);
+          fs.writeFileSync(newFilePath, buffer);
+          newIconUrl = `/uploads/avatars/${newFilename}`;
+        }
+
+        try {
+          const oldName = server.name;
+          const updated = db.updateServer(serverId, {
+            name,
+            description,
+            iconUrl: newIconUrl,
+            defaultChannelId
+          });
+
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'SERVER_UPDATE',
+            changes: {
+              before: { name: oldName, description: server.description },
+              after: { name: updated.name, description: updated.description }
+            }
+          });
+
+          broadcastToServer(serverId, {
+            type: 'server_updated',
+            server: updated
+          });
+          return sendJson(res, 200, { success: true, server: updated });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/servers/:serverId (Delete server - Owner or Developer only)
+      if (req.method === 'DELETE' && serverDetailsMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(serverDetailsMatch[1]);
+        if (serverId === 1) return sendJson(res, 400, { error: 'The General server cannot be deleted.' });
+
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        if (!user.isDeveloper && !isOwner) {
+          return sendJson(res, 403, { error: 'Only the server owner or developer accounts can delete this server.' });
+        }
+
+        try {
+          broadcastToServer(serverId, {
+            type: 'server_deleted',
+            serverId
+          });
+          db.deleteServer(serverId);
+          return sendJson(res, 200, { success: true });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // POST /api/servers/:serverId/leave (Leave server)
+      const leaveServerMatch = pathname.match(/^\/api\/servers\/(\d+)\/leave$/);
+      if (req.method === 'POST' && leaveServerMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(leaveServerMatch[1]);
+        try {
+          db.leaveServer(serverId, user.id);
+          broadcastToServer(serverId, {
+            type: 'member_left',
+            serverId,
+            userId: user.id
+          });
+          return sendJson(res, 200, { success: true });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // ---------------- Roles Routes ----------------
+      // GET /api/servers/:serverId/roles
+      const rolesMatch = pathname.match(/^\/api\/servers\/(\d+)\/roles$/);
+      if (req.method === 'GET' && rolesMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(rolesMatch[1]);
+        if (!db.canAccessServer(user, serverId)) return sendJson(res, 403, { error: 'Not a member' });
+
+        const roles = db.getServerRoles(serverId);
+        return sendJson(res, 200, { roles });
+      }
+
+      // POST /api/servers/:serverId/roles (Create role)
+      if (req.method === 'POST' && rolesMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(rolesMatch[1]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManageRoles = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_ROLES);
+        if (!canManageRoles) return sendJson(res, 403, { error: 'You lack permission to manage roles.' });
+
+        const { name, color, permissions } = await readJsonBody(req);
+        try {
+          const newRole = db.createRole({ serverId, name, color, permissions });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'ROLE_CREATE',
+            targetId: newRole.id,
+            targetType: 'role',
+            changes: { name: newRole.name, color: newRole.color, permissions: newRole.permissions }
+          });
+          broadcastToServer(serverId, {
+            type: 'role_created',
+            serverId,
+            role: newRole
+          });
+          return sendJson(res, 200, { success: true, role: newRole });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // PATCH /api/servers/:serverId/roles/:roleId (Update role)
+      const roleItemMatch = pathname.match(/^\/api\/servers\/(\d+)\/roles\/(\d+)$/);
+      if (req.method === 'PATCH' && roleItemMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(roleItemMatch[1]);
+        const roleId = Number(roleItemMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManageRoles = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_ROLES);
+        if (!canManageRoles) return sendJson(res, 403, { error: 'You lack permission to manage roles.' });
+
+        // Hierarchy check: cannot edit role with higher or equal position than yourself
+        const targetRole = db.getRoleById(roleId);
+        if (!targetRole || targetRole.serverId !== serverId) return sendJson(res, 404, { error: 'Role not found' });
+        const userPos = db.getHighestRolePosition(user.id, serverId);
+        if (!isOwner && !user.isDeveloper && targetRole.position >= userPos) {
+          return sendJson(res, 403, { error: 'You cannot edit roles at or above your highest role.' });
+        }
+
+        const { name, color, position, permissions } = await readJsonBody(req);
+        try {
+          const updated = db.updateRole(serverId, roleId, { name, color, position, permissions });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'ROLE_UPDATE',
+            targetId: roleId,
+            targetType: 'role',
+            changes: { before: { name: targetRole.name, permissions: targetRole.permissions }, after: { name: updated.name, permissions: updated.permissions } }
+          });
+          broadcastToServer(serverId, {
+            type: 'role_updated',
+            serverId,
+            role: updated
+          });
+          return sendJson(res, 200, { success: true, role: updated });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/servers/:serverId/roles/:roleId (Delete role)
+      if (req.method === 'DELETE' && roleItemMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(roleItemMatch[1]);
+        const roleId = Number(roleItemMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManageRoles = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_ROLES);
+        if (!canManageRoles) return sendJson(res, 403, { error: 'You lack permission to manage roles.' });
+
+        const targetRole = db.getRoleById(roleId);
+        if (!targetRole || targetRole.serverId !== serverId) return sendJson(res, 404, { error: 'Role not found' });
+        const userPos = db.getHighestRolePosition(user.id, serverId);
+        if (!isOwner && !user.isDeveloper && targetRole.position >= userPos) {
+          return sendJson(res, 403, { error: 'You cannot delete roles at or above your highest role.' });
+        }
+
+        try {
+          db.deleteRole(serverId, roleId);
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'ROLE_DELETE',
+            targetId: roleId,
+            targetType: 'role',
+            changes: { name: targetRole.name }
+          });
+          broadcastToServer(serverId, {
+            type: 'role_deleted',
+            serverId,
+            roleId
+          });
+          return sendJson(res, 200, { success: true });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // ---------------- Member Management & Moderation Routes ----------------
+      // GET /api/servers/:serverId/members
+      const membersMatch = pathname.match(/^\/api\/servers\/(\d+)\/members$/);
+      if (req.method === 'GET' && membersMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(membersMatch[1]);
+        if (!db.canAccessServer(user, serverId)) return sendJson(res, 403, { error: 'Not a member' });
+
+        const rawMembers = db.getServerMembers(serverId);
+        const members = rawMembers.map(m => {
+          const pres = getUserPublicPresence(m.id);
+          return {
+            ...m,
+            status: pres.status,
+            customStatus: pres.customStatus || m.customStatus
+          };
+        });
+        return sendJson(res, 200, { members });
+      }
+
+      // POST /api/servers/:serverId/members/:userId/roles (Assign role)
+      const memberRoleAssignMatch = pathname.match(/^\/api\/servers\/(\d+)\/members\/(\d+)\/roles$/);
+      if (req.method === 'POST' && memberRoleAssignMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(memberRoleAssignMatch[1]);
+        const targetUserId = Number(memberRoleAssignMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManageRoles = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_ROLES);
+        if (!canManageRoles) return sendJson(res, 403, { error: 'You lack permission to assign roles.' });
+
+        const { roleId } = await readJsonBody(req);
+        const role = db.getRoleById(roleId);
+        if (!role || role.serverId !== serverId) return sendJson(res, 404, { error: 'Role not found' });
+
+        // Hierarchy check
+        const userPos = db.getHighestRolePosition(user.id, serverId);
+        if (!isOwner && !user.isDeveloper && role.position >= userPos) {
+          return sendJson(res, 403, { error: 'You cannot assign a role at or above your highest role.' });
+        }
+
+        try {
+          db.assignMemberRole(serverId, targetUserId, roleId);
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_ROLE_ADD',
+            targetId: targetUserId,
+            targetType: 'user',
+            changes: { roleName: role.name, roleId: role.id }
+          });
+          const updatedRoles = db.getMemberRoles(serverId, targetUserId);
+          broadcastToServer(serverId, {
+            type: 'member_roles_updated',
+            serverId,
+            userId: targetUserId,
+            roles: updatedRoles
+          });
+          return sendJson(res, 200, { success: true, roles: updatedRoles });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/servers/:serverId/members/:userId/roles/:roleId (Remove role)
+      const memberRoleRemoveMatch = pathname.match(/^\/api\/servers\/(\d+)\/members\/(\d+)\/roles\/(\d+)$/);
+      if (req.method === 'DELETE' && memberRoleRemoveMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(memberRoleRemoveMatch[1]);
+        const targetUserId = Number(memberRoleRemoveMatch[2]);
+        const roleId = Number(memberRoleRemoveMatch[3]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canManageRoles = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.MANAGE_ROLES);
+        if (!canManageRoles) return sendJson(res, 403, { error: 'You lack permission to remove roles.' });
+
+        const role = db.getRoleById(roleId);
+        if (!role || role.serverId !== serverId) return sendJson(res, 404, { error: 'Role not found' });
+
+        const userPos = db.getHighestRolePosition(user.id, serverId);
+        if (!isOwner && !user.isDeveloper && role.position >= userPos) {
+          return sendJson(res, 403, { error: 'You cannot remove a role at or above your highest role.' });
+        }
+
+        try {
+          db.removeMemberRole(serverId, targetUserId, roleId);
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_ROLE_REMOVE',
+            targetId: targetUserId,
+            targetType: 'user',
+            changes: { roleName: role.name, roleId: role.id }
+          });
+          const updatedRoles = db.getMemberRoles(serverId, targetUserId);
+          broadcastToServer(serverId, {
+            type: 'member_roles_updated',
+            serverId,
+            userId: targetUserId,
+            roles: updatedRoles
+          });
+          return sendJson(res, 200, { success: true, roles: updatedRoles });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // POST /api/servers/:serverId/members/:userId/kick (Kick member)
+      const memberKickMatch = pathname.match(/^\/api\/servers\/(\d+)\/members\/(\d+)\/kick$/);
+      if (req.method === 'POST' && memberKickMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(memberKickMatch[1]);
+        const targetUserId = Number(memberKickMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canKick = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.KICK_MEMBERS);
+        if (!canKick) return sendJson(res, 403, { error: 'You lack permission to kick members.' });
+
+        if (server.createdBy && Number(server.createdBy) === targetUserId) {
+          return sendJson(res, 403, { error: 'You cannot kick the server owner.' });
+        }
+        if (targetUserId === user.id) {
+          return sendJson(res, 400, { error: 'You cannot kick yourself.' });
+        }
+
+        const userPos = db.getHighestRolePosition(user.id, serverId);
+        const targetPos = db.getHighestRolePosition(targetUserId, serverId);
+        if (!isOwner && !user.isDeveloper && targetPos >= userPos) {
+          return sendJson(res, 403, { error: 'You cannot kick a member with higher or equal role.' });
+        }
+
+        const { reason } = await readJsonBody(req);
+        try {
+          db.leaveServer(serverId, targetUserId);
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_KICK',
+            targetId: targetUserId,
+            targetType: 'user',
+            reason: reason || ''
+          });
+          broadcastToServer(serverId, {
+            type: 'member_kicked',
+            serverId,
+            userId: targetUserId,
+            reason: reason || ''
+          });
+          const kickedClient = getClientByUserId(targetUserId);
+          if (kickedClient) {
+            kickedClient.send(JSON.stringify({
+              type: 'server_kicked_notice',
+              serverId,
+              serverName: server.name,
+              reason: reason || ''
+            }));
+          }
+          return sendJson(res, 200, { success: true });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // POST /api/servers/:serverId/members/:userId/ban (Ban member)
+      const memberBanMatch = pathname.match(/^\/api\/servers\/(\d+)\/members\/(\d+)\/ban$/);
+      if (req.method === 'POST' && memberBanMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(memberBanMatch[1]);
+        const targetUserId = Number(memberBanMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canBan = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.BAN_MEMBERS);
+        if (!canBan) return sendJson(res, 403, { error: 'You lack permission to ban members.' });
+
+        if (server.createdBy && Number(server.createdBy) === targetUserId) {
+          return sendJson(res, 403, { error: 'You cannot ban the server owner.' });
+        }
+        if (targetUserId === user.id) {
+          return sendJson(res, 400, { error: 'You cannot ban yourself.' });
+        }
+
+        const userPos = db.getHighestRolePosition(user.id, serverId);
+        const targetPos = db.getHighestRolePosition(targetUserId, serverId);
+        if (!isOwner && !user.isDeveloper && targetPos >= userPos) {
+          return sendJson(res, 403, { error: 'You cannot ban a member with higher or equal role.' });
+        }
+
+        const { reason } = await readJsonBody(req);
+        try {
+          db.banMember({ serverId, userId: targetUserId, bannedBy: user.id, reason: reason || '' });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_BAN',
+            targetId: targetUserId,
+            targetType: 'user',
+            reason: reason || ''
+          });
+          broadcastToServer(serverId, {
+            type: 'member_banned',
+            serverId,
+            userId: targetUserId,
+            reason: reason || ''
+          });
+          const bannedClient = getClientByUserId(targetUserId);
+          if (bannedClient) {
+            bannedClient.send(JSON.stringify({
+              type: 'server_banned_notice',
+              serverId,
+              serverName: server.name,
+              reason: reason || ''
+            }));
+          }
+          return sendJson(res, 200, { success: true });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // GET /api/servers/:serverId/bans (List banned users)
+      const bansMatch = pathname.match(/^\/api\/servers\/(\d+)\/bans$/);
+      if (req.method === 'GET' && bansMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(bansMatch[1]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canBan = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.BAN_MEMBERS);
+        if (!canBan) return sendJson(res, 403, { error: 'You lack permission to view bans.' });
+
+        const bans = db.getServerBans(serverId);
+        return sendJson(res, 200, { bans });
+      }
+
+      // DELETE /api/servers/:serverId/bans/:userId (Unban member)
+      const unbanMatch = pathname.match(/^\/api\/servers\/(\d+)\/bans\/(\d+)$/);
+      if (req.method === 'DELETE' && unbanMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(unbanMatch[1]);
+        const targetUserId = Number(unbanMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canBan = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.BAN_MEMBERS);
+        if (!canBan) return sendJson(res, 403, { error: 'You lack permission to unban members.' });
+
+        try {
+          db.unbanMember(serverId, targetUserId);
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_UNBAN',
+            targetId: targetUserId,
+            targetType: 'user'
+          });
+          broadcastToServer(serverId, {
+            type: 'member_unbanned',
+            serverId,
+            userId: targetUserId
+          });
+          return sendJson(res, 200, { success: true });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // POST /api/servers/:serverId/members/:userId/timeout (Timeout member)
+      const memberTimeoutMatch = pathname.match(/^\/api\/servers\/(\d+)\/members\/(\d+)\/timeout$/);
+      if (req.method === 'POST' && memberTimeoutMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(memberTimeoutMatch[1]);
+        const targetUserId = Number(memberTimeoutMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canTimeout = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.TIMEOUT_MEMBERS);
+        if (!canTimeout) return sendJson(res, 403, { error: 'You lack permission to timeout members.' });
+
+        if (server.createdBy && Number(server.createdBy) === targetUserId) {
+          return sendJson(res, 403, { error: 'You cannot timeout the server owner.' });
+        }
+        if (targetUserId === user.id) {
+          return sendJson(res, 400, { error: 'You cannot timeout yourself.' });
+        }
+
+        const userPos = db.getHighestRolePosition(user.id, serverId);
+        const targetPos = db.getHighestRolePosition(targetUserId, serverId);
+        if (!isOwner && !user.isDeveloper && targetPos >= userPos) {
+          return sendJson(res, 403, { error: 'You cannot timeout a member with higher or equal role.' });
+        }
+
+        const { durationSeconds, reason } = await readJsonBody(req);
+        try {
+          const resTimeout = db.timeoutMember({
+            serverId,
+            userId: targetUserId,
+            timedOutBy: user.id,
+            durationSeconds: durationSeconds || 300,
+            reason: reason || ''
+          });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_TIMEOUT',
+            targetId: targetUserId,
+            targetType: 'user',
+            reason: reason || '',
+            changes: { durationSeconds: durationSeconds || 300, expiresAt: resTimeout.expiresAt }
+          });
+          broadcastToServer(serverId, {
+            type: 'member_timed_out',
+            serverId,
+            userId: targetUserId,
+            expiresAt: resTimeout.expiresAt,
+            reason: reason || ''
+          });
+          return sendJson(res, 200, { success: true, ...resTimeout });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // DELETE /api/servers/:serverId/members/:userId/timeout (Remove timeout)
+      if (req.method === 'DELETE' && memberTimeoutMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(memberTimeoutMatch[1]);
+        const targetUserId = Number(memberTimeoutMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canTimeout = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.TIMEOUT_MEMBERS);
+        if (!canTimeout) return sendJson(res, 403, { error: 'You lack permission to manage timeouts.' });
+
+        try {
+          db.removeTimeout(serverId, targetUserId);
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_TIMEOUT_REMOVE',
+            targetId: targetUserId,
+            targetType: 'user'
+          });
+          broadcastToServer(serverId, {
+            type: 'member_timeout_removed',
+            serverId,
+            userId: targetUserId
+          });
+          return sendJson(res, 200, { success: true });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // POST /api/servers/:serverId/members/:userId/warn (Warn member)
+      const memberWarnMatch = pathname.match(/^\/api\/servers\/(\d+)\/members\/(\d+)\/warn$/);
+      if (req.method === 'POST' && memberWarnMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(memberWarnMatch[1]);
+        const targetUserId = Number(memberWarnMatch[2]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canTimeout = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.TIMEOUT_MEMBERS);
+        if (!canTimeout) return sendJson(res, 403, { error: 'You lack permission to warn members.' });
+
+        const { reason } = await readJsonBody(req);
+        try {
+          const resWarn = db.warnMember({ serverId, userId: targetUserId, warnedBy: user.id, reason: reason || 'Warning' });
+          db.logServerAudit({
+            serverId,
+            actorId: user.id,
+            action: 'MEMBER_WARN',
+            targetId: targetUserId,
+            targetType: 'user',
+            reason: reason || ''
+          });
+          const warnedClient = getClientByUserId(targetUserId);
+          if (warnedClient) {
+            warnedClient.send(JSON.stringify({
+              type: 'server_warned_notice',
+              serverId,
+              serverName: server.name,
+              reason: reason || ''
+            }));
+          }
+          return sendJson(res, 200, { success: true, ...resWarn });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // ---------------- Audit Log Route ----------------
+      // GET /api/servers/:serverId/audit-logs
+      const auditLogMatch = pathname.match(/^\/api\/servers\/(\d+)\/audit-logs$/);
+      if (req.method === 'GET' && auditLogMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const serverId = Number(auditLogMatch[1]);
+        const server = db.getServerById(serverId);
+        if (!server) return sendJson(res, 404, { error: 'Server not found' });
+
+        const isOwner = server.createdBy && Number(server.createdBy) === Number(user.id);
+        const canViewAudit = user.isDeveloper || isOwner || db.hasPermission(user.id, serverId, db.PERMISSION_FLAGS.VIEW_AUDIT_LOG);
+        if (!canViewAudit) return sendJson(res, 403, { error: 'You lack permission to view the audit log.' });
+
+        const logs = db.getServerAuditLogs(serverId, 100);
+        return sendJson(res, 200, { logs });
+      }
+
 
       // ==========================================
       // FRIEND SYSTEM API ROUTES
@@ -728,7 +1733,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // GET /api/developer/accounts (List all registered accounts - Developer only)
+      // GET /api/developer/accounts (List all registered accounts with presence - Developer only)
       if (req.method === 'GET' && pathname === '/api/developer/accounts') {
         const token = getTokenFromReq(req);
         const user = db.getUserByToken(token);
@@ -736,8 +1741,47 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 403, { error: 'Only developer accounts can view registered accounts.' });
         }
 
-        const accounts = db.getAllUsersForAdmin();
+        const accounts = db.getAllUsersForAdmin().map(acc => {
+          const pres = getUserPublicPresence(acc.id);
+          return {
+            ...acc,
+            status: pres.status,
+            customStatus: pres.customStatus
+          };
+        });
         return sendJson(res, 200, { success: true, accounts });
+      }
+
+      // POST /api/developer/accounts (Directly create a user account - Developer only)
+      if (req.method === 'POST' && pathname === '/api/developer/accounts') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can create accounts directly.' });
+        }
+
+        const { username, displayName, password, isDeveloper = false } = await readJsonBody(req);
+        try {
+          const created = db.createUser({
+            username,
+            displayName,
+            password,
+            isDeveloper: Boolean(isDeveloper)
+          });
+
+          broadcastAll({ type: 'user_created', userId: created.id });
+
+          return sendJson(res, 201, {
+            success: true,
+            account: {
+              ...created,
+              status: 'offline',
+              customStatus: null
+            }
+          });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
       }
 
       // DELETE /api/developer/accounts/:userId (Remove registered account - Developer only)
@@ -810,6 +1854,244 @@ const server = http.createServer(async (req, res) => {
 
         setTimeout(stopServerGracefully, 1000);
         return;
+      }
+
+      // ==========================================
+      // GIPHY API & GIF PICKER ENDPOINTS
+      // ==========================================
+
+      // GET /api/gifs/status
+      if (req.method === 'GET' && pathname === '/api/gifs/status') {
+        const customKey = Boolean(process.env.GIPHY_API_KEY && process.env.GIPHY_API_KEY.trim());
+        return sendJson(res, 200, {
+          hasKey: true,
+          mode: 'live',
+          source: customKey ? 'custom_giphy' : 'global_giphy_tenor',
+          attribution: 'Powered by GIPHY & Tenor'
+        });
+      }
+
+      // POST /api/gifs/config (Developer only - configure runtime/persistent Giphy key)
+      if (req.method === 'POST' && pathname === '/api/gifs/config') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can configure GIPHY settings.' });
+        }
+
+        const { apiKey } = await readJsonBody(req);
+        const cleanKey = String(apiKey || '').trim();
+        process.env.GIPHY_API_KEY = cleanKey;
+
+        // Persist to .env
+        try {
+          const envPath = path.join(__dirname, '..', '.env');
+          if (fs.existsSync(envPath)) {
+            let envContent = fs.readFileSync(envPath, 'utf8');
+            if (/^GIPHY_API_KEY=/m.test(envContent)) {
+              envContent = envContent.replace(/^GIPHY_API_KEY=.*$/m, `GIPHY_API_KEY=${cleanKey}`);
+            } else {
+              envContent += `\nGIPHY_API_KEY=${cleanKey}\n`;
+            }
+            fs.writeFileSync(envPath, envContent, 'utf8');
+          }
+        } catch (e) {
+          console.warn('[Voiceline] Could not update .env for GIPHY key:', e.message);
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          hasKey: true,
+          mode: 'live'
+        });
+      }
+
+      // POST /api/gifs/test (Developer only - verify Giphy key)
+      if (req.method === 'POST' && pathname === '/api/gifs/test') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can test GIPHY connection.' });
+        }
+
+        const { apiKey } = await readJsonBody(req);
+        const testKey = String(apiKey || process.env.GIPHY_API_KEY || DEFAULT_GIPHY_KEY || '').trim();
+        if (!testKey) {
+          return sendJson(res, 400, { error: 'No GIPHY API key provided to test.' });
+        }
+
+        try {
+          const giphyRes = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${encodeURIComponent(testKey)}&limit=1`, { signal: AbortSignal.timeout(6000) });
+          const data = await giphyRes.json();
+          if (giphyRes.ok && data.meta && data.meta.status === 200) {
+            return sendJson(res, 200, { success: true, message: 'GIPHY API key verified successfully!' });
+          } else {
+            return sendJson(res, 400, { error: data.meta?.msg || 'GIPHY rejected this API key.' });
+          }
+        } catch (err) {
+          return sendJson(res, 500, { error: `Connection failed: ${err.message}` });
+        }
+      }
+
+      // GET /api/gifs/trending
+      if (req.method === 'GET' && pathname === '/api/gifs/trending') {
+        const limit = Math.min(Number(urlObj.searchParams.get('limit')) || 24, 48);
+        const offset = Number(urlObj.searchParams.get('offset')) || 0;
+
+        // 1. Try GIPHY Live
+        const giphyGifs = await fetchGiphyTrending(limit, offset);
+        if (giphyGifs && giphyGifs.length > 0) {
+          return sendJson(res, 200, { success: true, source: 'giphy_live', gifs: giphyGifs });
+        }
+
+        // 2. Try Tenor Live
+        const tenorGifs = await fetchTenorGifs('', limit);
+        if (tenorGifs && tenorGifs.length > 0) {
+          return sendJson(res, 200, { success: true, source: 'tenor_live', gifs: tenorGifs });
+        }
+
+        // 3. Curated Catalog Fallback
+        const curated = getCuratedGifs('trending', limit, offset);
+        return sendJson(res, 200, { success: true, source: 'curated', gifs: curated });
+      }
+
+      // GET /api/gifs/search
+      if (req.method === 'GET' && pathname === '/api/gifs/search') {
+        const q = String(urlObj.searchParams.get('q') || '').trim();
+        const limit = Math.min(Number(urlObj.searchParams.get('limit')) || 24, 48);
+        const offset = Number(urlObj.searchParams.get('offset')) || 0;
+
+        if (q) {
+          // 1. Try GIPHY Live Search
+          const giphyGifs = await fetchGiphySearch(q, limit, offset);
+          if (giphyGifs && giphyGifs.length > 0) {
+            return sendJson(res, 200, { success: true, source: 'giphy_live', gifs: giphyGifs });
+          }
+
+          // 2. Try Tenor Live Search
+          const tenorGifs = await fetchTenorGifs(q, limit);
+          if (tenorGifs && tenorGifs.length > 0) {
+            return sendJson(res, 200, { success: true, source: 'tenor_live', gifs: tenorGifs });
+          }
+        }
+
+        // 3. Curated Catalog Fallback
+        const curated = getCuratedGifs(q, limit, offset);
+        return sendJson(res, 200, { success: true, source: 'curated', gifs: curated });
+      }
+
+      // ==========================================
+      // STICKERS API ENDPOINTS
+      // ==========================================
+
+      // GET /api/stickers
+      if (req.method === 'GET' && pathname === '/api/stickers') {
+        const serverId = urlObj.searchParams.get('serverId') ? Number(urlObj.searchParams.get('serverId')) : null;
+        const stickers = db.getStickers(serverId);
+        return sendJson(res, 200, { success: true, stickers });
+      }
+
+      // POST /api/stickers
+      if (req.method === 'POST' && pathname === '/api/stickers') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const body = await readJsonBody(req);
+        const { serverId, name, description, tags, fileUrl, imageData, fileFormat } = body;
+
+        let targetServerId = serverId ? Number(serverId) : null;
+        if (targetServerId) {
+          const srv = db.getServerById(targetServerId);
+          if (!srv) return sendJson(res, 404, { error: 'Server not found' });
+          const isOwner = srv.createdBy && Number(srv.createdBy) === Number(user.id);
+          const canManage = user.isDeveloper || isOwner || db.hasPermission(user.id, targetServerId, db.PERMISSION_FLAGS.MANAGE_SERVER) || db.canAccessServer(user, targetServerId);
+          if (!canManage) return sendJson(res, 403, { error: 'You do not have permission to add stickers to this server.' });
+        } else {
+          // If no server specified, attach to user's server if available; otherwise global
+          const userServers = db.getUserServers(user.id);
+          if (userServers && userServers.length > 0) {
+            targetServerId = userServers[0].id;
+          } else {
+            targetServerId = null;
+          }
+        }
+
+        let savedUrl = fileUrl || null;
+        let finalFormat = (fileFormat || 'png').toLowerCase();
+
+        if (imageData && typeof imageData === 'string') {
+          const match = imageData.match(/^data:image\/([a-zA-Z0-9\+\-\.]+);base64,(.+)$/i);
+          if (match) {
+            let mimeSubtype = match[1].toLowerCase();
+            const rawData = match[2];
+            let ext = 'png';
+            if (mimeSubtype.includes('svg')) ext = 'svg';
+            else if (mimeSubtype.includes('jpeg') || mimeSubtype.includes('jpg')) ext = 'jpg';
+            else if (mimeSubtype.includes('webp')) ext = 'webp';
+            else if (mimeSubtype.includes('gif')) ext = 'gif';
+            else if (mimeSubtype.includes('png')) ext = 'png';
+            else return sendJson(res, 400, { error: 'Unsupported image format. Allowed: SVG, PNG, WebP, GIF, JPEG' });
+
+            const buffer = Buffer.from(rawData, 'base64');
+            if (buffer.length > 2 * 1024 * 1024) {
+              return sendJson(res, 400, { error: 'Sticker file size exceeds 2 MB limit.' });
+            }
+
+            const filename = `sticker_${targetServerId || 'global'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+            const targetPath = path.join(STICKERS_DIR, filename);
+            fs.writeFileSync(targetPath, buffer);
+            savedUrl = `/uploads/stickers/${filename}`;
+            finalFormat = ext;
+          }
+        }
+
+        if (!savedUrl) {
+          return sendJson(res, 400, { error: 'Sticker image is required.' });
+        }
+
+        try {
+          const newSticker = db.createSticker({
+            serverId: targetServerId,
+            name,
+            description,
+            tags,
+            fileUrl: savedUrl,
+            fileFormat: finalFormat,
+            createdBy: user.id
+          });
+
+          return sendJson(res, 201, { success: true, sticker: newSticker });
+        } catch (createErr) {
+          return sendJson(res, 400, { error: createErr.message || 'Failed to create sticker' });
+        }
+      }
+
+      // DELETE /api/stickers/:id or /api/stickers?id=...
+      const stickerDeleteMatch = pathname.match(/^\/api\/stickers\/(\d+)$/);
+      if (req.method === 'DELETE' && (stickerDeleteMatch || pathname === '/api/stickers')) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated' });
+
+        const stickerId = stickerDeleteMatch ? Number(stickerDeleteMatch[1]) : Number(urlObj.searchParams.get('id'));
+        if (!stickerId) return sendJson(res, 400, { error: 'Sticker ID is required' });
+
+        const sticker = db.getStickerById(stickerId);
+        if (!sticker) return sendJson(res, 404, { error: 'Sticker not found' });
+
+        if (sticker.serverId) {
+          const srv = db.getServerById(sticker.serverId);
+          const isOwner = srv && srv.createdBy && Number(srv.createdBy) === Number(user.id);
+          const isCreator = sticker.createdBy && Number(sticker.createdBy) === Number(user.id);
+          const canManage = user.isDeveloper || isOwner || isCreator || db.hasPermission(user.id, sticker.serverId, db.PERMISSION_FLAGS.MANAGE_SERVER);
+          if (!canManage) return sendJson(res, 403, { error: 'You do not have permission to delete this sticker.' });
+        } else {
+          if (!user.isDeveloper) return sendJson(res, 403, { error: 'Only developers can delete global stickers.' });
+        }
+
+        db.deleteSticker(stickerId);
+        return sendJson(res, 200, { success: true, message: 'Sticker deleted successfully' });
       }
 
       // ==========================================
@@ -1355,6 +2637,54 @@ function broadcastToUsers(userIds, payload) {
 // Key: userId (Number) -> { callId: string, partnerId: number, role: 'caller'|'callee', status: 'ringing'|'connected' }
 const activeVoiceCalls = new Map();
 
+// Server Voice Channels State
+// activeServerVoiceChannels: Map<channelId (Number), Map<userId (Number), participantObject>>
+const activeServerVoiceChannels = new Map();
+// userServerVoiceMap: Map<userId (Number), { serverId: Number, channelId: Number }>
+const userServerVoiceMap = new Map();
+
+function getServerVoiceStates(serverId) {
+  const sId = Number(serverId);
+  const channels = db.getChannelsByServerId(sId);
+  const states = {};
+  for (const ch of channels) {
+    if (ch.type === 'voice') {
+      const channelParticipants = activeServerVoiceChannels.get(Number(ch.id));
+      states[ch.id] = channelParticipants ? Array.from(channelParticipants.values()) : [];
+    }
+  }
+  return states;
+}
+
+function removeUserFromServerVoice(userId, notifyReason = 'leave') {
+  const uId = Number(userId);
+  const current = userServerVoiceMap.get(uId);
+  if (!current) return null;
+
+  const { serverId, channelId } = current;
+  userServerVoiceMap.delete(uId);
+
+  const participants = activeServerVoiceChannels.get(channelId);
+  if (participants) {
+    participants.delete(uId);
+    if (participants.size === 0) {
+      activeServerVoiceChannels.delete(channelId);
+    }
+  }
+
+  broadcastToServer(serverId, {
+    type: 'server_voice_state_update',
+    serverId,
+    channelId,
+    userId: uId,
+    action: 'leave',
+    reason: notifyReason,
+    participants: participants ? Array.from(participants.values()) : []
+  });
+
+  return current;
+}
+
 function getClientByUserId(userId) {
   const targetId = Number(userId);
   for (const client of wss.clients) {
@@ -1464,6 +2794,19 @@ setInterval(() => {
     console.error('[Voiceline] Error checking expired custom statuses:', err);
   }
 }, 30000);
+
+// DuckDNS Auto-Updater for permanent address (voicelineapp.duckdns.org)
+function syncDuckDns() {
+  const url = 'https://www.duckdns.org/update?domains=voicelineapp&token=126a7e1a-f40c-4efd-bfe3-756a95142678&ip=';
+  https.get(url, (res) => {
+    res.on('data', () => {});
+    res.on('end', () => console.log('[Voiceline] DuckDNS IP synced: voicelineapp.duckdns.org'));
+  }).on('error', (err) => {
+    console.warn('[Voiceline] DuckDNS sync notice:', err.message);
+  });
+}
+syncDuckDns();
+setInterval(syncDuckDns, 15 * 60 * 1000);
 
 wss.on('connection', (ws, req) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -1619,6 +2962,39 @@ wss.on('connection', (ws, req) => {
             serverId,
             channelId,
             message: 'You cannot send messages here because you are not a member of this server.'
+          }));
+          return;
+        }
+
+        // Check if user is banned or timed out
+        if (db.isUserBanned(serverId, ws.user.id)) {
+          ws.send(JSON.stringify({
+            type: 'channel_access_denied',
+            serverId,
+            channelId,
+            message: 'You are banned from this server.'
+          }));
+          return;
+        }
+
+        if (db.isMemberTimedOut(serverId, ws.user.id)) {
+          ws.send(JSON.stringify({
+            type: 'member_timed_out_error',
+            serverId,
+            channelId,
+            message: 'You are currently timed out in this server and cannot send messages.'
+          }));
+          return;
+        }
+
+        // Check SEND_MESSAGES permission
+        const canSend = ws.user.isDeveloper || db.hasPermission(ws.user.id, serverId, db.PERMISSION_FLAGS.SEND_MESSAGES);
+        if (!canSend) {
+          ws.send(JSON.stringify({
+            type: 'channel_access_denied',
+            serverId,
+            channelId,
+            message: 'You lack permission to send messages in this channel.'
           }));
           return;
         }
@@ -1905,7 +3281,8 @@ wss.on('connection', (ws, req) => {
             type: 'video_state',
             callId: parsed.callId,
             fromUserId: ws.user.id,
-            enabled: Boolean(parsed.enabled)
+            enabled: Boolean(parsed.enabled),
+            isScreen: Boolean(parsed.isScreen)
           }));
         }
         return;
@@ -1946,6 +3323,135 @@ wss.on('connection', (ws, req) => {
           activeVoiceCalls.delete(active.partnerId);
         }
         return;
+      } else if (parsed.type === 'server_voice_join') {
+        const serverId = Number(parsed.serverId);
+        const channelId = Number(parsed.channelId);
+        if (!serverId || !channelId) return;
+
+        const channel = resolveAccessibleChannel(ws.user, serverId, channelId);
+        if (!channel || channel.type !== 'voice') {
+          ws.send(JSON.stringify({ type: 'server_voice_error', message: 'Voice channel not found or inaccessible.' }));
+          return;
+        }
+
+        // Leave any existing server voice channel first
+        removeUserFromServerVoice(ws.user.id, 'channel_switch');
+
+        // Also end active 1-to-1 call if in one
+        if (activeVoiceCalls.has(ws.user.id)) {
+          const active = activeVoiceCalls.get(ws.user.id);
+          const partnerClient = getClientByUserId(active.partnerId);
+          if (partnerClient) {
+            partnerClient.send(JSON.stringify({
+              type: 'call_ended',
+              callId: active.callId,
+              reason: 'server_voice_joined'
+            }));
+          }
+          activeVoiceCalls.delete(ws.user.id);
+          activeVoiceCalls.delete(active.partnerId);
+        }
+
+        let participants = activeServerVoiceChannels.get(channelId);
+        if (!participants) {
+          participants = new Map();
+          activeServerVoiceChannels.set(channelId, participants);
+        }
+
+        const participant = {
+          userId: ws.user.id,
+          username: ws.user.username,
+          displayName: ws.user.displayName,
+          avatarUrl: ws.user.avatarUrl,
+          isMuted: Boolean(parsed.isMuted),
+          isDeafened: Boolean(parsed.isDeafened),
+          isVideo: Boolean(parsed.isVideo),
+          isScreenShare: Boolean(parsed.isScreenShare),
+          joinedAt: new Date().toISOString()
+        };
+
+        participants.set(ws.user.id, participant);
+        userServerVoiceMap.set(ws.user.id, { serverId, channelId });
+
+        // Acknowledge join to caller with current participants
+        ws.send(JSON.stringify({
+          type: 'server_voice_joined',
+          serverId,
+          channelId,
+          channelName: channel.name,
+          participants: Array.from(participants.values())
+        }));
+
+        // Broadcast to whole server that user joined this voice channel
+        broadcastToServer(serverId, {
+          type: 'server_voice_state_update',
+          serverId,
+          channelId,
+          userId: ws.user.id,
+          action: 'join',
+          participant,
+          participants: Array.from(participants.values())
+        });
+        return;
+      } else if (parsed.type === 'server_voice_leave') {
+        removeUserFromServerVoice(ws.user.id, 'user_left');
+        ws.send(JSON.stringify({ type: 'server_voice_left' }));
+        return;
+      } else if (parsed.type === 'server_voice_media_state') {
+        const current = userServerVoiceMap.get(ws.user.id);
+        if (!current) return;
+        const participants = activeServerVoiceChannels.get(current.channelId);
+        if (!participants) return;
+        const participant = participants.get(ws.user.id);
+        if (!participant) return;
+
+        if (typeof parsed.isMuted === 'boolean') participant.isMuted = parsed.isMuted;
+        if (typeof parsed.isDeafened === 'boolean') participant.isDeafened = parsed.isDeafened;
+        if (typeof parsed.isVideo === 'boolean') participant.isVideo = parsed.isVideo;
+        if (typeof parsed.isScreenShare === 'boolean') participant.isScreenShare = parsed.isScreenShare;
+
+        broadcastToServer(current.serverId, {
+          type: 'server_voice_media_state',
+          serverId: current.serverId,
+          channelId: current.channelId,
+          userId: ws.user.id,
+          isMuted: participant.isMuted,
+          isDeafened: participant.isDeafened,
+          isVideo: participant.isVideo,
+          isScreenShare: participant.isScreenShare
+        });
+        return;
+      } else if (parsed.type === 'server_voice_speaking') {
+        const current = userServerVoiceMap.get(ws.user.id);
+        if (!current) return;
+        broadcastToServer(current.serverId, {
+          type: 'server_voice_speaking',
+          serverId: current.serverId,
+          channelId: current.channelId,
+          userId: ws.user.id,
+          speaking: Boolean(parsed.speaking)
+        });
+        return;
+      } else if (parsed.type === 'server_voice_signal') {
+        const current = userServerVoiceMap.get(ws.user.id);
+        if (!current) return;
+        const targetUserId = Number(parsed.targetUserId);
+        if (!targetUserId) return;
+
+        const targetCurrent = userServerVoiceMap.get(targetUserId);
+        if (targetCurrent && targetCurrent.channelId === current.channelId) {
+          const targetClient = getClientByUserId(targetUserId);
+          if (targetClient) {
+            targetClient.send(JSON.stringify({
+              type: 'server_voice_signal',
+              serverId: current.serverId,
+              channelId: current.channelId,
+              fromUserId: ws.user.id,
+              signal: parsed.signal
+            }));
+          }
+        }
+        return;
       } else if (parsed.type === 'server_shutdown') {
         if (!ws.user.isDeveloper) return;
         console.log(`[Voiceline] Shutdown initiated via WebSocket by @${ws.user.username}`);
@@ -1971,6 +3477,10 @@ wss.on('connection', (ws, req) => {
       } else {
         userSocketCounts.set(ws.user.id, currentCount);
       }
+    }
+
+    if (ws.user && userServerVoiceMap.has(ws.user.id)) {
+      removeUserFromServerVoice(ws.user.id, 'disconnect');
     }
 
     if (ws.user && activeVoiceCalls.has(ws.user.id)) {
