@@ -1048,7 +1048,7 @@ myProfileForm.addEventListener('submit', async (e) => {
 
     await loadFriends();
   } catch (err) {
-    myProfileError.textContent = 'Could not contact server.';
+    myProfileError.textContent = err.message ? `Error: ${err.message}` : 'Could not contact server.';
   }
 });
 
