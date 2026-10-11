@@ -1,6 +1,6 @@
 {
   "name": "voiceline",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A private, self-hosted chat app for friends",
   "main": "electron/main.js",
   "scripts": {

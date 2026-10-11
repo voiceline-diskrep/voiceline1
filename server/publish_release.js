@@ -20,7 +20,7 @@ function getGitHubToken() {
 const GITHUB_TOKEN = getGitHubToken();
 const OWNER = 'voiceline-diskrep';
 const REPO = 'voiceline1';
-const TAG = 'v1.0.4';
+const TAG = 'v1.0.5';
 
 function apiRequest(options, postData) {
   return new Promise((resolve, reject) => {
@@ -133,7 +133,7 @@ async function main() {
       tag_name: TAG,
       target_commitish: 'main',
       name: `Voiceline ${TAG}`,
-      body: `### Voiceline ${TAG}\n\n- **Live Cloudflare Tunnel Default**: Connected out-of-the-box directly to the live Cloudflare tunnel with instant GitHub auto-discovery and reachability verification.\n- **Message Tools**: Reply, forward, pin, edit, delete, and report messages across all channels and direct messages.\n- **Developer Moderation Center**: Reported messages inspection panel inside Developer Settings with delete message and resolution controls.\n- **Security Update**: Developer master password updated to \`ilxsm\`.\n\nDownload **Voiceline Setup 1.0.4.exe** to install, or **Voiceline 1.0.4.exe** for portable use.`,
+      body: `### Voiceline ${TAG}\n\n- **Screenshot Clipboard Paste**: Press \`Ctrl + V\` anywhere in channel or direct message chats to immediately paste and attach screenshots taken with Snipping Tool or print screen.\n- **Leaving Sound Effects**: Distinct audio chimes when leaving a call or voice channel, plus leave notifications when a member departs.\n- **Profile Avatar Optimization**: Automatic in-browser canvas thumbnailing (256x256) to ensure ultra-fast uploads and prevent Cloudflare tunnel payload drops.\n- **All Message Tools**: Reply, forward, pin, edit, delete, and report.\n\nDownload **Voiceline Setup 1.0.5.exe** to install, or **Voiceline 1.0.5.exe** for portable use.`,
       draft: false,
       prerelease: false
     }));
