@@ -3171,6 +3171,80 @@ if (dmRemoveAttachmentBtn) {
   });
 }
 
+// ------------------------------------------
+// SCREENSHOT CLIPBOARD PASTE HANDLER
+// ------------------------------------------
+function handleClipboardImagePaste(e, targetType = 'auto') {
+  const clipboardData = e.clipboardData || (window.clipboardData);
+  if (!clipboardData || !clipboardData.items) return;
+
+  const items = Array.from(clipboardData.items);
+  const imageItem = items.find(item => item.type && item.type.startsWith('image/'));
+  if (!imageItem) return;
+
+  const blob = imageItem.getAsFile();
+  if (!blob) return;
+
+  e.preventDefault();
+
+  // Create friendly filename with timestamp
+  const dateStr = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
+  const ext = imageItem.type === 'image/jpeg' ? 'jpg' : 'png';
+  const fileName = `screenshot_${dateStr}.${ext}`;
+  const file = new File([blob], fileName, { type: imageItem.type || 'image/png' });
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    alert(`Screenshot is too large (${formatBytes(file.size)}).\n\nMaximum allowed file size is 100MB.`);
+    return;
+  }
+
+  // Determine destination view
+  const isDm = targetType === 'dm' || (targetType === 'auto' && currentView === 'dm');
+
+  if (isDm) {
+    pendingDmFile = file;
+    if (dmPendingFileName) dmPendingFileName.textContent = file.name;
+    if (dmPendingFileSize) dmPendingFileSize.textContent = `(${formatBytes(file.size)})`;
+    if (dmPendingAttachmentBar) dmPendingAttachmentBar.classList.remove('hidden');
+    if (dmMessageInput) dmMessageInput.focus();
+    showToast({
+      icon: '📋',
+      title: 'Screenshot Pasted',
+      body: `Attached "${file.name}" to direct message. Press Enter to send.`
+    });
+  } else {
+    pendingChannelFile = file;
+    if (pendingFileName) pendingFileName.textContent = file.name;
+    if (pendingFileSize) pendingFileSize.textContent = `(${formatBytes(file.size)})`;
+    if (pendingAttachmentBar) pendingAttachmentBar.classList.remove('hidden');
+    if (messageInput) messageInput.focus();
+    showToast({
+      icon: '📋',
+      title: 'Screenshot Pasted',
+      body: `Attached "${file.name}" to channel message. Press Enter to send.`
+    });
+  }
+}
+
+if (messageInput) {
+  messageInput.addEventListener('paste', (e) => handleClipboardImagePaste(e, 'channel'));
+}
+if (dmMessageInput) {
+  dmMessageInput.addEventListener('paste', (e) => handleClipboardImagePaste(e, 'dm'));
+}
+
+// Global paste listener: if user pastes anywhere while in chat and no other text input is focused
+window.addEventListener('paste', (e) => {
+  const activeEl = document.activeElement;
+  if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+    // If focused on an input/textarea other than chat inputs (e.g. search, settings), let native paste handle
+    if (activeEl !== messageInput && activeEl !== dmMessageInput) {
+      return;
+    }
+  }
+  handleClipboardImagePaste(e, 'auto');
+});
+
 // ==========================================
 // MESSAGE ACTIONS & INTERACTION STATE
 // ==========================================
@@ -3893,19 +3967,34 @@ function playCallChime(type) {
     osc.connect(gain);
 
     if (type === 'connect') {
+      // Ascending pleasant chord (C5 -> E5 -> G5)
+      osc.type = 'triangle';
       osc.frequency.setValueAtTime(523.25, now);
-      osc.frequency.setValueAtTime(659.25, now + 0.12);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+      osc.frequency.setValueAtTime(659.25, now + 0.08);
+      osc.frequency.setValueAtTime(783.99, now + 0.16);
+      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
       osc.start(now);
-      osc.stop(now + 0.35);
-    } else if (type === 'end') {
-      osc.frequency.setValueAtTime(440, now);
-      osc.frequency.setValueAtTime(330, now + 0.12);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+      osc.stop(now + 0.38);
+    } else if (type === 'end' || type === 'leave') {
+      // Descending mellow leave tone (G4 -> E4 -> C4)
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(392.00, now);          // G4
+      osc.frequency.setValueAtTime(329.63, now + 0.09);   // E4
+      osc.frequency.setValueAtTime(261.63, now + 0.18);   // C4
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
       osc.start(now);
-      osc.stop(now + 0.35);
+      osc.stop(now + 0.42);
+    } else if (type === 'user_leave') {
+      // Distinct short subtle chime when another participant leaves the voice channel
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(349.23, now);          // F4
+      osc.frequency.setValueAtTime(261.63, now + 0.10);   // C4
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+      osc.start(now);
+      osc.stop(now + 0.32);
     }
   } catch {}
 }
@@ -5582,6 +5671,9 @@ function handleServerVoiceStateUpdate(msg) {
     serverVoiceState.participants = msg.participants || [];
 
     if (msg.action === 'leave' && msg.userId) {
+      if (currentUser && msg.userId !== currentUser.id) {
+        playCallChime('user_leave');
+      }
       closeVoicePeerConnection(msg.userId);
     }
 
