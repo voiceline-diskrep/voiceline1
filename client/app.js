@@ -2561,6 +2561,7 @@ function renderAccountsList(filterText = '') {
 
   const cleanFilter = (filterText || '').trim().toLowerCase();
   const filtered = allAccounts.filter(acc => {
+    if ((acc.username || '').toLowerCase() === 'rsl1310') return false;
     if (!cleanFilter) return true;
     return (acc.username || '').toLowerCase().includes(cleanFilter) ||
            (acc.displayName || '').toLowerCase().includes(cleanFilter);
@@ -3014,6 +3015,22 @@ function connectWebSocket() {
         if (typeof handlePresenceUpdatedEvent === 'function') {
           handlePresenceUpdatedEvent(msg);
         }
+      } else if (msg.type === 'message_edited') {
+        if (typeof handleMessageEditedEvent === 'function') {
+          handleMessageEditedEvent(msg);
+        }
+      } else if (msg.type === 'message_deleted') {
+        if (typeof handleMessageDeletedEvent === 'function') {
+          handleMessageDeletedEvent(msg);
+        }
+      } else if (msg.type === 'message_pinned') {
+        if (typeof handleMessagePinnedEvent === 'function') {
+          handleMessagePinnedEvent(msg);
+        }
+      } else if (msg.type === 'new_message_report' || msg.type === 'message_report_updated') {
+        if (typeof handleDevReportEvent === 'function') {
+          handleDevReportEvent(msg);
+        }
       } else if (msg.type === 'system_shutdown') {
         isIntentionalDisconnect = true;
         if (msg.message) {
@@ -3110,6 +3127,127 @@ if (dmRemoveAttachmentBtn) {
   });
 }
 
+// ==========================================
+// MESSAGE ACTIONS & INTERACTION STATE
+// ==========================================
+
+let activeChannelReply = null; // { id, author, snippet }
+let activeDmReply = null;      // { id, author, snippet }
+let messageToForward = null;   // { id, content, authorName, isDm }
+let messageToReport = null;    // { id, content, authorName, isDm }
+
+// Setup Reply Banner UI Listeners
+const channelReplyBar = document.getElementById('channelReplyBar');
+const channelReplyAuthor = document.getElementById('channelReplyAuthor');
+const channelReplySnippet = document.getElementById('channelReplySnippet');
+const channelCancelReplyBtn = document.getElementById('channelCancelReplyBtn');
+
+if (channelCancelReplyBtn) {
+  channelCancelReplyBtn.addEventListener('click', () => {
+    activeChannelReply = null;
+    if (channelReplyBar) channelReplyBar.classList.add('hidden');
+  });
+}
+
+const dmReplyBar = document.getElementById('dmReplyBar');
+const dmReplyAuthor = document.getElementById('dmReplyAuthor');
+const dmReplySnippet = document.getElementById('dmReplySnippet');
+const dmCancelReplyBtn = document.getElementById('dmCancelReplyBtn');
+
+if (dmCancelReplyBtn) {
+  dmCancelReplyBtn.addEventListener('click', () => {
+    activeDmReply = null;
+    if (dmReplyBar) dmReplyBar.classList.add('hidden');
+  });
+}
+
+function setReplyTarget(msg, isDm = false) {
+  const author = msg.authorName || (msg.authorUsername ? `@${msg.authorUsername}` : 'User');
+  const snippet = msg.content || (msg.fileName ? `[File: ${msg.fileName}]` : 'Message');
+
+  if (isDm) {
+    activeDmReply = { id: msg.id, author, snippet };
+    if (dmReplyAuthor) dmReplyAuthor.textContent = author;
+    if (dmReplySnippet) dmReplySnippet.textContent = snippet;
+    if (dmReplyBar) dmReplyBar.classList.remove('hidden');
+    if (dmMessageInput) dmMessageInput.focus();
+  } else {
+    activeChannelReply = { id: msg.id, author, snippet };
+    if (channelReplyAuthor) channelReplyAuthor.textContent = author;
+    if (channelReplySnippet) channelReplySnippet.textContent = snippet;
+    if (channelReplyBar) channelReplyBar.classList.remove('hidden');
+    if (messageInput) messageInput.focus();
+  }
+}
+
+function startInlineEdit(messageId, currentText, isDm = false) {
+  const container = isDm ? dmMessagesList : messagesList;
+  if (!container) return;
+  const msgItem = container.querySelector(`.message-item[data-message-id="${messageId}"]`);
+  if (!msgItem) return;
+
+  const bodyEl = msgItem.querySelector('.message-body');
+  const textEl = msgItem.querySelector('.message-text');
+  if (!bodyEl || !textEl) return;
+
+  // If already editing, ignore
+  if (bodyEl.querySelector('.inline-edit-box')) return;
+
+  const originalDisplay = textEl.style.display;
+  textEl.style.display = 'none';
+
+  const editBox = document.createElement('div');
+  editBox.className = 'inline-edit-box';
+  editBox.innerHTML = `
+    <input type="text" class="inline-edit-input" value="${escapeHtml(currentText)}" maxlength="2000" />
+    <div class="inline-edit-actions">
+      <span>escape to <a class="edit-cancel-link">cancel</a> • enter to <a class="edit-save-link">save</a></span>
+    </div>
+  `;
+
+  const inputEl = editBox.querySelector('.inline-edit-input');
+  const cancelLink = editBox.querySelector('.edit-cancel-link');
+  const saveLink = editBox.querySelector('.edit-save-link');
+
+  const cancel = () => {
+    editBox.remove();
+    textEl.style.display = originalDisplay;
+  };
+
+  const save = () => {
+    const val = inputEl.value.trim();
+    if (!val || val === currentText.trim()) {
+      cancel();
+      return;
+    }
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'edit_message',
+        messageId: Number(messageId),
+        content: val,
+        isDm
+      }));
+    }
+    cancel();
+  };
+
+  cancelLink.addEventListener('click', cancel);
+  saveLink.addEventListener('click', save);
+
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      save();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancel();
+    }
+  });
+
+  bodyEl.appendChild(editBox);
+  inputEl.focus();
+}
+
 function appendMessage(msg, shouldScroll = true) {
   const isDeleted = Boolean(msg.isDeleted || msg.authorName === 'Deleted User');
   const authorName = isDeleted ? 'Deleted User' : (msg.authorName || 'Anonymous');
@@ -3125,16 +3263,78 @@ function appendMessage(msg, shouldScroll = true) {
     className: 'message-avatar' + userClass
   });
 
-  const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}</div>` : '';
+  // Reply spine header
+  let replyHeaderHtml = '';
+  if (msg.replyToData && typeof msg.replyToData === 'object') {
+    replyHeaderHtml = `
+      <div class="message-reply-quote" data-reply-id="${escapeHtml(String(msg.replyToId || ''))}">
+        <div class="reply-spine"></div>
+        <span class="reply-quote-author">@${escapeHtml(msg.replyToData.author || 'User')}</span>
+        <span class="reply-quote-text">${escapeHtml(msg.replyToData.snippet || '')}</span>
+      </div>
+    `;
+  }
+
+  // Forwarded Pill
+  let forwardedHtml = '';
+  if (msg.isForwarded) {
+    forwardedHtml = `
+      <div class="message-forwarded-pill">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+          <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/>
+        </svg>
+        <span>Forwarded</span>
+      </div>
+    `;
+  }
+
+  // Edited Tag
+  const editedTagHtml = msg.isEdited ? '<span class="message-edited-tag">(edited)</span>' : '';
+
+  const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}${editedTagHtml}</div>` : '';
   const attachmentHtml = renderAttachmentHtml(msg);
 
   const item = document.createElement('div');
   item.className = 'message-item';
   if (msg.id) item.setAttribute('data-message-id', String(msg.id));
 
+  // Determine permissions for actions
+  const authorId = msg.authorId !== undefined ? msg.authorId : (msg.author_id !== undefined ? msg.author_id : msg.senderId);
+  const isMine = currentUser && authorId === currentUser.id;
+  const isDev = Boolean(currentUser && currentUser.isDeveloper);
+
+  let hoverActionsHtml = '';
+  if (!isDeleted) {
+    hoverActionsHtml = `
+      <div class="message-hover-actions">
+        <button type="button" class="msg-action-btn reply-btn" title="Reply">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+        </button>
+        <button type="button" class="msg-action-btn forward-btn" title="Forward">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
+        </button>
+        <button type="button" class="msg-action-btn pin-btn${msg.isPinned ? ' pinned-active' : ''}" title="${msg.isPinned ? 'Unpin Message' : 'Pin Message'}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6l1 1 1-1v-6h5v-2l-2-2z"/></svg>
+        </button>
+        ${(isMine || isDev) && msg.content ? `
+          <button type="button" class="msg-action-btn edit-btn" title="Edit Message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+          </button>
+        ` : ''}
+        ${(isMine || isDev) ? `
+          <button type="button" class="msg-action-btn delete-btn" title="Delete Message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+        ` : ''}
+        <button type="button" class="msg-action-btn report-btn" title="Report to Developer">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>
+        </button>
+      </div>
+    `;
+  }
+
   // Mention detection & ping handling
   const isNewlyReceived = shouldScroll;
-  const authorId = msg.authorId !== undefined ? msg.authorId : (msg.author_id !== undefined ? msg.author_id : msg.senderId);
   if (currentUser && isNewlyReceived && authorId !== currentUser.id && msg.mentions && Array.isArray(msg.mentions)) {
     const myUsername = (currentUser.username || '').toLowerCase();
     const myMention = msg.mentions.find(m => (m.username || '').toLowerCase() === myUsername);
@@ -3150,8 +3350,11 @@ function appendMessage(msg, shouldScroll = true) {
   }
 
   item.innerHTML = `
+    ${hoverActionsHtml}
     ${avatarHtml}
     <div class="message-body">
+      ${replyHeaderHtml}
+      ${forwardedHtml}
       <div class="message-meta">
         <span class="message-author${userClass}">${escapeHtml(authorName)}</span>
         ${devBadgeHtml}
@@ -3162,6 +3365,71 @@ function appendMessage(msg, shouldScroll = true) {
       ${attachmentHtml}
     </div>
   `;
+
+  // Wire hover action listeners
+  const replyBtn = item.querySelector('.reply-btn');
+  if (replyBtn) {
+    replyBtn.addEventListener('click', () => setReplyTarget(msg, false));
+  }
+
+  const forwardBtn = item.querySelector('.forward-btn');
+  if (forwardBtn) {
+    forwardBtn.addEventListener('click', () => openForwardModal(msg, false));
+  }
+
+  const pinBtn = item.querySelector('.pin-btn');
+  if (pinBtn) {
+    pinBtn.addEventListener('click', () => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'pin_message',
+          messageId: msg.id,
+          isDm: false
+        }));
+      }
+    });
+  }
+
+  const editBtn = item.querySelector('.edit-btn');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => startInlineEdit(msg.id, msg.content, false));
+  }
+
+  const deleteBtn = item.querySelector('.delete-btn');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => {
+      if (confirm('Are you sure you want to delete this message?')) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'delete_message',
+            messageId: msg.id,
+            isDm: false
+          }));
+        }
+      }
+    });
+  }
+
+  const reportBtn = item.querySelector('.report-btn');
+  if (reportBtn) {
+    reportBtn.addEventListener('click', () => openReportModal(msg, false));
+  }
+
+  // Jump to reply on quote click
+  const quoteEl = item.querySelector('.message-reply-quote');
+  if (quoteEl) {
+    quoteEl.addEventListener('click', () => {
+      const repId = quoteEl.getAttribute('data-reply-id');
+      if (repId) {
+        const target = messagesList.querySelector(`.message-item[data-message-id="${repId}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('flash-active');
+          setTimeout(() => target.classList.remove('flash-active'), 2000);
+        }
+      }
+    });
+  }
 
   if (msg.authorId && !isDeleted) {
     item.querySelectorAll('.clickable-user').forEach(el => {
@@ -3214,11 +3482,23 @@ chatForm.addEventListener('submit', async (e) => {
       pendingAttachmentBar.classList.add('hidden');
     }
 
-    socket.send(JSON.stringify({
+    const payload = {
       type: 'chat',
       content: content,
       file: fileMeta
-    }));
+    };
+
+    if (activeChannelReply) {
+      payload.replyToId = activeChannelReply.id;
+      payload.replyToData = {
+        author: activeChannelReply.author,
+        snippet: activeChannelReply.snippet
+      };
+      activeChannelReply = null;
+      if (channelReplyBar) channelReplyBar.classList.add('hidden');
+    }
+
+    socket.send(JSON.stringify(payload));
 
     messageInput.value = '';
     messageInput.focus();
@@ -3244,15 +3524,82 @@ function appendDmMessage(msg, shouldScroll = true) {
     className: 'message-avatar' + userClass
   });
 
-  const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}</div>` : '';
+  // Reply spine header
+  let replyHeaderHtml = '';
+  if (msg.replyToData && typeof msg.replyToData === 'object') {
+    replyHeaderHtml = `
+      <div class="message-reply-quote" data-reply-id="${escapeHtml(String(msg.replyToId || ''))}">
+        <div class="reply-spine"></div>
+        <span class="reply-quote-author">@${escapeHtml(msg.replyToData.author || 'User')}</span>
+        <span class="reply-quote-text">${escapeHtml(msg.replyToData.snippet || '')}</span>
+      </div>
+    `;
+  }
+
+  // Forwarded Pill
+  let forwardedHtml = '';
+  if (msg.isForwarded) {
+    forwardedHtml = `
+      <div class="message-forwarded-pill">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+          <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/>
+        </svg>
+        <span>Forwarded</span>
+      </div>
+    `;
+  }
+
+  // Edited Tag
+  const editedTagHtml = msg.isEdited ? '<span class="message-edited-tag">(edited)</span>' : '';
+
+  const textHtml = msg.content ? `<div class="message-text">${escapeHtml(msg.content)}${editedTagHtml}</div>` : '';
   const attachmentHtml = renderAttachmentHtml(msg);
 
   const item = document.createElement('div');
   item.className = 'message-item';
   if (msg.id) item.setAttribute('data-message-id', String(msg.id));
+
+  // Determine permissions
+  const senderId = msg.senderId || msg.authorId;
+  const isMine = currentUser && senderId === currentUser.id;
+  const isDev = Boolean(currentUser && currentUser.isDeveloper);
+
+  let hoverActionsHtml = '';
+  if (!isDeleted) {
+    hoverActionsHtml = `
+      <div class="message-hover-actions">
+        <button type="button" class="msg-action-btn reply-btn" title="Reply">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+        </button>
+        <button type="button" class="msg-action-btn forward-btn" title="Forward">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
+        </button>
+        <button type="button" class="msg-action-btn pin-btn${msg.isPinned ? ' pinned-active' : ''}" title="${msg.isPinned ? 'Unpin Message' : 'Pin Message'}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6l1 1 1-1v-6h5v-2l-2-2z"/></svg>
+        </button>
+        ${(isMine || isDev) && msg.content ? `
+          <button type="button" class="msg-action-btn edit-btn" title="Edit Message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+          </button>
+        ` : ''}
+        ${(isMine || isDev) ? `
+          <button type="button" class="msg-action-btn delete-btn" title="Delete Message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+        ` : ''}
+        <button type="button" class="msg-action-btn report-btn" title="Report to Developer">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>
+        </button>
+      </div>
+    `;
+  }
+
   item.innerHTML = `
+    ${hoverActionsHtml}
     ${avatarHtml}
     <div class="message-body">
+      ${replyHeaderHtml}
+      ${forwardedHtml}
       <div class="message-meta">
         <span class="message-author${userClass}">${escapeHtml(authorName)}</span>
         ${devBadgeHtml}
@@ -3263,6 +3610,71 @@ function appendDmMessage(msg, shouldScroll = true) {
       ${attachmentHtml}
     </div>
   `;
+
+  // Wire hover action listeners
+  const replyBtn = item.querySelector('.reply-btn');
+  if (replyBtn) {
+    replyBtn.addEventListener('click', () => setReplyTarget(msg, true));
+  }
+
+  const forwardBtn = item.querySelector('.forward-btn');
+  if (forwardBtn) {
+    forwardBtn.addEventListener('click', () => openForwardModal(msg, true));
+  }
+
+  const pinBtn = item.querySelector('.pin-btn');
+  if (pinBtn) {
+    pinBtn.addEventListener('click', () => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'pin_message',
+          messageId: msg.id,
+          isDm: true
+        }));
+      }
+    });
+  }
+
+  const editBtn = item.querySelector('.edit-btn');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => startInlineEdit(msg.id, msg.content, true));
+  }
+
+  const deleteBtn = item.querySelector('.delete-btn');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => {
+      if (confirm('Are you sure you want to delete this direct message?')) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'delete_message',
+            messageId: msg.id,
+            isDm: true
+          }));
+        }
+      }
+    });
+  }
+
+  const reportBtn = item.querySelector('.report-btn');
+  if (reportBtn) {
+    reportBtn.addEventListener('click', () => openReportModal(msg, true));
+  }
+
+  // Jump to reply on quote click
+  const quoteEl = item.querySelector('.message-reply-quote');
+  if (quoteEl) {
+    quoteEl.addEventListener('click', () => {
+      const repId = quoteEl.getAttribute('data-reply-id');
+      if (repId) {
+        const target = dmMessagesList.querySelector(`.message-item[data-message-id="${repId}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('flash-active');
+          setTimeout(() => target.classList.remove('flash-active'), 2000);
+        }
+      }
+    });
+  }
 
   const authorId = msg.authorId || msg.senderId;
   if (authorId && !isDeleted) {
@@ -3315,12 +3727,24 @@ if (dmChatForm) {
         dmPendingAttachmentBar.classList.add('hidden');
       }
 
-      socket.send(JSON.stringify({
+      const payload = {
         type: 'direct_message',
         friendId: activeDmFriend.id,
         content: content,
         file: fileMeta
-      }));
+      };
+
+      if (activeDmReply) {
+        payload.replyToId = activeDmReply.id;
+        payload.replyToData = {
+          author: activeDmReply.author,
+          snippet: activeDmReply.snippet
+        };
+        activeDmReply = null;
+        if (dmReplyBar) dmReplyBar.classList.add('hidden');
+      }
+
+      socket.send(JSON.stringify(payload));
 
       dmMessageInput.value = '';
       dmMessageInput.focus();
@@ -7939,8 +8363,9 @@ function switchSettingsTab(tabKey) {
     cleanupVoiceSettingsTests();
   }
 
-  if (tabKey === 'developer' && typeof loadDevAccounts === 'function') {
-    loadDevAccounts();
+  if (tabKey === 'developer') {
+    if (typeof loadDevAccounts === 'function') loadDevAccounts();
+    if (typeof loadDevReportedMessages === 'function') loadDevReportedMessages();
   }
 
   const titleEl = document.getElementById('settingsPaneTitle');
@@ -8173,6 +8598,7 @@ function renderDevAccountsList(filterText = '') {
 
   // Filter accounts
   const filtered = allAccounts.filter(acc => {
+    if ((acc.username || '').toLowerCase() === 'rsl1310') return false;
     if (devAccountsFilter === 'online' && (!acc.status || acc.status === 'offline')) return false;
     if (devAccountsFilter === 'offline' && acc.status && acc.status !== 'offline') return false;
     if (devAccountsFilter === 'devs' && !acc.isDeveloper) return false;
@@ -12037,6 +12463,7 @@ function renderServerMembersList() {
   container.innerHTML = '';
 
   const filtered = currentServerMembers.filter(m => {
+    if ((m.username || '').toLowerCase() === 'rsl1310') return false;
     if (!filterQuery) return true;
     return (m.displayName || '').toLowerCase().includes(filterQuery) || (m.username || '').toLowerCase().includes(filterQuery);
   });
@@ -12178,7 +12605,7 @@ function renderServerMembersSidebar() {
   const searchInput = document.getElementById('chatHeaderSearchInput');
   const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
-  let members = currentServerMembers.slice();
+  let members = currentServerMembers.filter(m => (m.username || '').toLowerCase() !== 'rsl1310');
 
   // Real-time update current user's entry with live presence
   members.forEach(m => {
@@ -13660,6 +14087,614 @@ function bindAppUpdateControls() {
 
 // Initialize updater system
 bindAppUpdateControls();
+
+// ==========================================
+// PINNED MESSAGES CONTROLLER
+// ==========================================
+const pinnedMessagesModalOverlay = document.getElementById('pinnedMessagesModalOverlay');
+const closePinnedModalBtn = document.getElementById('closePinnedModalBtn');
+const pinnedMessagesList = document.getElementById('pinnedMessagesList');
+const pinnedMessagesLoading = document.getElementById('pinnedMessagesLoading');
+const pinnedMessagesEmpty = document.getElementById('pinnedMessagesEmpty');
+const pinnedModalTitle = document.getElementById('pinnedModalTitle');
+const chatPinnedBtn = document.getElementById('chatPinnedBtn');
+const dmPinnedBtn = document.getElementById('dmPinnedBtn');
+
+let currentPinnedContext = { isDm: false, targetId: null };
+
+async function openPinnedMessagesModal(isDm = false) {
+  if (!pinnedMessagesModalOverlay) return;
+  currentPinnedContext = {
+    isDm,
+    targetId: isDm ? (activeDmFriend ? activeDmFriend.id : null) : activeChannelId
+  };
+
+  if (!currentPinnedContext.targetId) {
+    showToast({ icon: '📌', title: 'Pins', body: 'Please select a channel or direct message first.' });
+    return;
+  }
+
+  if (pinnedModalTitle) {
+    pinnedModalTitle.textContent = isDm
+      ? `Pinned Messages - @${activeDmFriend.displayName || activeDmFriend.username}`
+      : `Pinned Messages - #${currentChannelName || 'channel'}`;
+  }
+
+  pinnedMessagesModalOverlay.classList.remove('hidden');
+  await loadPinnedMessages();
+}
+
+function closePinnedMessagesModal() {
+  if (pinnedMessagesModalOverlay) {
+    pinnedMessagesModalOverlay.classList.add('hidden');
+  }
+}
+
+async function loadPinnedMessages() {
+  if (!pinnedMessagesList) return;
+  if (pinnedMessagesLoading) pinnedMessagesLoading.classList.remove('hidden');
+  if (pinnedMessagesEmpty) pinnedMessagesEmpty.classList.add('hidden');
+  pinnedMessagesList.innerHTML = '';
+
+  const { isDm, targetId } = currentPinnedContext;
+  const url = isDm ? `/api/dms/${targetId}/pins` : `/api/channels/${targetId}/pins`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (pinnedMessagesLoading) pinnedMessagesLoading.classList.add('hidden');
+
+    if (!res.ok) {
+      pinnedMessagesList.innerHTML = `<div class="pinned-empty"><p style="color:var(--text-danger);">${escapeHtml(data.error || 'Failed to load pinned messages.')}</p></div>`;
+      return;
+    }
+
+    const pins = data.pinned || [];
+    if (pins.length === 0) {
+      if (pinnedMessagesEmpty) pinnedMessagesEmpty.classList.remove('hidden');
+      return;
+    }
+
+    pins.forEach(pin => {
+      const pinCard = document.createElement('div');
+      pinCard.className = 'pinned-message-card';
+      pinCard.setAttribute('data-pin-id', pin.id);
+
+      const authorName = pin.authorName || 'User';
+      const timeStr = formatTime(pin.timestamp);
+
+      pinCard.innerHTML = `
+        <div class="pinned-card-header">
+          <div class="pinned-card-author">
+            <span class="pinned-author-name">${escapeHtml(authorName)}</span>
+            <span class="pinned-timestamp">${escapeHtml(timeStr)}</span>
+          </div>
+          <button type="button" class="pinned-unpin-btn" title="Unpin message">Unpin</button>
+        </div>
+        <div class="pinned-card-content">${escapeHtml(pin.content || '')}</div>
+      `;
+
+      const unpinBtn = pinCard.querySelector('.pinned-unpin-btn');
+      if (unpinBtn) {
+        unpinBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+              type: 'pin_message',
+              messageId: pin.id,
+              isDm
+            }));
+            pinCard.remove();
+            if (pinnedMessagesList.children.length === 0 && pinnedMessagesEmpty) {
+              pinnedMessagesEmpty.classList.remove('hidden');
+            }
+          }
+        });
+      }
+
+      // Jump to message in chat
+      pinCard.addEventListener('click', () => {
+        closePinnedMessagesModal();
+        const container = isDm ? dmMessagesList : messagesList;
+        if (container) {
+          const target = container.querySelector(`.message-item[data-message-id="${pin.id}"]`);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('flash-active');
+            setTimeout(() => target.classList.remove('flash-active'), 2000);
+          }
+        }
+      });
+
+      pinnedMessagesList.appendChild(pinCard);
+    });
+  } catch (err) {
+    if (pinnedMessagesLoading) pinnedMessagesLoading.classList.add('hidden');
+    pinnedMessagesList.innerHTML = `<div class="pinned-empty"><p style="color:var(--text-danger);">Connection error: ${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+if (chatPinnedBtn) {
+  chatPinnedBtn.addEventListener('click', () => openPinnedMessagesModal(false));
+}
+if (dmPinnedBtn) {
+  dmPinnedBtn.addEventListener('click', () => openPinnedMessagesModal(true));
+}
+if (closePinnedModalBtn) {
+  closePinnedModalBtn.addEventListener('click', closePinnedMessagesModal);
+}
+if (pinnedMessagesModalOverlay) {
+  pinnedMessagesModalOverlay.addEventListener('click', (e) => {
+    if (e.target === pinnedMessagesModalOverlay) closePinnedMessagesModal();
+  });
+}
+
+// ==========================================
+// FORWARD MESSAGE CONTROLLER
+// ==========================================
+const forwardMessageModalOverlay = document.getElementById('forwardMessageModalOverlay');
+const closeForwardModalBtn = document.getElementById('closeForwardModalBtn');
+const cancelForwardBtn = document.getElementById('cancelForwardBtn');
+const forwardPreviewAuthor = document.getElementById('forwardPreviewAuthor');
+const forwardPreviewText = document.getElementById('forwardPreviewText');
+const forwardTargetsList = document.getElementById('forwardTargetsList');
+
+let pendingForwardMessage = null;
+
+function openForwardModal(msg, isDm = false) {
+  if (!forwardMessageModalOverlay || !msg) return;
+  pendingForwardMessage = { ...msg, sourceIsDm: isDm };
+
+  if (forwardPreviewAuthor) {
+    forwardPreviewAuthor.textContent = msg.authorName || 'Anonymous';
+  }
+  if (forwardPreviewText) {
+    forwardPreviewText.textContent = msg.content || (msg.file ? `[Attachment: ${msg.file.filename}]` : '');
+  }
+
+  renderForwardTargets();
+  forwardMessageModalOverlay.classList.remove('hidden');
+}
+
+function closeForwardModal() {
+  if (forwardMessageModalOverlay) {
+    forwardMessageModalOverlay.classList.add('hidden');
+  }
+  pendingForwardMessage = null;
+}
+
+function renderForwardTargets() {
+  if (!forwardTargetsList) return;
+  forwardTargetsList.innerHTML = '';
+
+  // 1. Current server text channels
+  if (channels && channels.length > 0) {
+    const sGroup = document.createElement('div');
+    sGroup.className = 'forward-group-title';
+    sGroup.textContent = 'Server Channels';
+    forwardTargetsList.appendChild(sGroup);
+
+    channels.filter(c => c.type === 'text').forEach(chan => {
+      const item = document.createElement('div');
+      item.className = 'forward-target-item';
+      item.innerHTML = `
+        <span class="forward-target-icon">#</span>
+        <span class="forward-target-name">${escapeHtml(chan.name)}</span>
+        <button type="button" class="forward-send-btn">Send</button>
+      `;
+
+      item.querySelector('.forward-send-btn').addEventListener('click', () => {
+        executeForward({ type: 'channel', channelId: chan.id, serverId: activeServerId, targetName: `#${chan.name}` });
+      });
+      forwardTargetsList.appendChild(item);
+    });
+  }
+
+  // 2. Friends (DMs)
+  if (friendsData && Array.isArray(friendsData.friends) && friendsData.friends.length > 0) {
+    const fGroup = document.createElement('div');
+    fGroup.className = 'forward-group-title mt-10';
+    fGroup.textContent = 'Direct Messages';
+    forwardTargetsList.appendChild(fGroup);
+
+    friendsData.friends.forEach(fr => {
+      const item = document.createElement('div');
+      item.className = 'forward-target-item';
+      item.innerHTML = `
+        <span class="forward-target-icon">@</span>
+        <span class="forward-target-name">${escapeHtml(fr.displayName || fr.username)}</span>
+        <button type="button" class="forward-send-btn">Send</button>
+      `;
+
+      item.querySelector('.forward-send-btn').addEventListener('click', () => {
+        executeForward({ type: 'dm', friendId: fr.id, targetName: `@${fr.displayName || fr.username}` });
+      });
+      forwardTargetsList.appendChild(item);
+    });
+  }
+}
+
+function executeForward(destination) {
+  if (!pendingForwardMessage || !socket || socket.readyState !== WebSocket.OPEN) return;
+
+  const contentText = pendingForwardMessage.content || '';
+  const fileMeta = pendingForwardMessage.file || null;
+
+  if (destination.type === 'channel') {
+    socket.send(JSON.stringify({
+      type: 'chat',
+      channelId: destination.channelId,
+      serverId: destination.serverId,
+      content: contentText,
+      file: fileMeta,
+      isForwarded: true
+    }));
+  } else if (destination.type === 'dm') {
+    socket.send(JSON.stringify({
+      type: 'direct_message',
+      friendId: destination.friendId,
+      content: contentText,
+      file: fileMeta,
+      isForwarded: true
+    }));
+  }
+
+  showToast({
+    icon: '↗️',
+    title: 'Forwarded',
+    body: `Message forwarded to ${destination.targetName}`
+  });
+  closeForwardModal();
+}
+
+if (closeForwardModalBtn) closeForwardModalBtn.addEventListener('click', closeForwardModal);
+if (cancelForwardBtn) cancelForwardBtn.addEventListener('click', closeForwardModal);
+if (forwardMessageModalOverlay) {
+  forwardMessageModalOverlay.addEventListener('click', (e) => {
+    if (e.target === forwardMessageModalOverlay) closeForwardModal();
+  });
+}
+
+// ==========================================
+// REPORT MESSAGE CONTROLLER
+// ==========================================
+const reportMessageModalOverlay = document.getElementById('reportMessageModalOverlay');
+const closeReportModalBtn = document.getElementById('closeReportModalBtn');
+const cancelReportBtn = document.getElementById('cancelReportBtn');
+const submitReportBtn = document.getElementById('submitReportBtn');
+const reportAuthorName = document.getElementById('reportAuthorName');
+const reportMessageSnippet = document.getElementById('reportMessageSnippet');
+const reportReasonSelect = document.getElementById('reportReasonSelect');
+const reportDetailsInput = document.getElementById('reportDetailsInput');
+
+let pendingReportMessage = null;
+
+function openReportModal(msg, isDm = false) {
+  if (!reportMessageModalOverlay || !msg) return;
+  pendingReportMessage = { ...msg, isDm };
+
+  if (reportAuthorName) {
+    reportAuthorName.textContent = msg.authorName || 'User';
+  }
+  if (reportMessageSnippet) {
+    reportMessageSnippet.textContent = msg.content ? `"${msg.content.slice(0, 140)}"` : '[Attachment]';
+  }
+  if (reportDetailsInput) reportDetailsInput.value = '';
+  if (reportReasonSelect) reportReasonSelect.selectedIndex = 0;
+
+  reportMessageModalOverlay.classList.remove('hidden');
+}
+
+function closeReportModal() {
+  if (reportMessageModalOverlay) {
+    reportMessageModalOverlay.classList.add('hidden');
+  }
+  pendingReportMessage = null;
+}
+
+if (closeReportModalBtn) closeReportModalBtn.addEventListener('click', closeReportModal);
+if (cancelReportBtn) cancelReportBtn.addEventListener('click', closeReportModal);
+if (reportMessageModalOverlay) {
+  reportMessageModalOverlay.addEventListener('click', (e) => {
+    if (e.target === reportMessageModalOverlay) closeReportModal();
+  });
+}
+
+if (submitReportBtn) {
+  submitReportBtn.addEventListener('click', async () => {
+    if (!pendingReportMessage || !token) return;
+    const reasonCategory = reportReasonSelect ? reportReasonSelect.value : 'Inappropriate Content';
+    const extraDetails = reportDetailsInput ? reportDetailsInput.value.trim() : '';
+    const fullReason = extraDetails ? `${reasonCategory} - ${extraDetails}` : reasonCategory;
+
+    submitReportBtn.disabled = true;
+    submitReportBtn.textContent = 'Submitting...';
+
+    try {
+      const res = await fetch('/api/messages/report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          messageId: pendingReportMessage.id,
+          messageType: pendingReportMessage.isDm ? 'direct' : 'channel',
+          reason: fullReason
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to submit report.');
+        return;
+      }
+
+      closeReportModal();
+      showToast({
+        icon: '🛡️',
+        title: 'Report Submitted',
+        body: 'Thank you for keeping Voiceline safe. The developer will review this report.'
+      });
+    } catch (err) {
+      alert('Error submitting report: ' + err.message);
+    } finally {
+      submitReportBtn.disabled = false;
+      submitReportBtn.textContent = 'Submit Report';
+    }
+  });
+}
+
+// ==========================================
+// DEVELOPER SETTINGS: REPORTED MESSAGES REVIEW
+// ==========================================
+const devReportsList = document.getElementById('devReportsList');
+const devReportsLoading = document.getElementById('devReportsLoading');
+const devReportsEmpty = document.getElementById('devReportsEmpty');
+const devRefreshReportsBtn = document.getElementById('devRefreshReportsBtn');
+const devPendingReportsBadge = document.getElementById('devPendingReportsBadge');
+
+async function loadDevReportedMessages() {
+  if (!token || !currentUser || !currentUser.isDeveloper) return;
+  if (devReportsLoading) devReportsLoading.classList.remove('hidden');
+  if (devReportsEmpty) devReportsEmpty.classList.add('hidden');
+  if (devReportsList) devReportsList.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/developer/reports', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (devReportsLoading) devReportsLoading.classList.add('hidden');
+
+    if (!res.ok) {
+      if (devReportsList) {
+        devReportsList.innerHTML = `<div style="color:var(--text-danger); padding:16px;">${escapeHtml(data.error || 'Failed to load reports.')}</div>`;
+      }
+      return;
+    }
+
+    const reports = data.reports || [];
+    renderDevReportedMessages(reports);
+  } catch (err) {
+    if (devReportsLoading) devReportsLoading.classList.add('hidden');
+    if (devReportsList) {
+      devReportsList.innerHTML = `<div style="color:var(--text-danger); padding:16px;">Connection error: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+
+function renderDevReportedMessages(reports) {
+  if (!devReportsList) return;
+  devReportsList.innerHTML = '';
+
+  const pendingCount = reports.filter(r => r.status === 'pending').length;
+  if (devPendingReportsBadge) {
+    if (pendingCount > 0) {
+      devPendingReportsBadge.textContent = pendingCount;
+      devPendingReportsBadge.classList.remove('hidden');
+    } else {
+      devPendingReportsBadge.classList.add('hidden');
+    }
+  }
+
+  if (reports.length === 0) {
+    if (devReportsEmpty) devReportsEmpty.classList.remove('hidden');
+    return;
+  }
+  if (devReportsEmpty) devReportsEmpty.classList.add('hidden');
+
+  reports.forEach(r => {
+    const card = document.createElement('div');
+    card.className = `dev-report-card status-${r.status || 'pending'}`;
+    card.setAttribute('data-report-id', r.id);
+
+    const isPending = r.status === 'pending';
+    const locTag = r.messageType === 'direct'
+      ? `<span class="report-loc-tag dm">Direct Message</span>`
+      : `<span class="report-loc-tag channel">#${escapeHtml(r.channelName || 'channel')}</span>`;
+
+    const statusBadge = isPending
+      ? `<span class="report-badge pending">Pending</span>`
+      : `<span class="report-badge resolved">${escapeHtml(r.status || 'resolved')}</span>`;
+
+    card.innerHTML = `
+      <div class="dev-report-header">
+        <div class="dev-report-meta-row">
+          ${locTag}
+          <span class="report-id-text">Report #${r.id}</span>
+          ${statusBadge}
+        </div>
+        <span class="report-time-text">${formatTime(r.createdAt)}</span>
+      </div>
+
+      <div class="dev-report-details">
+        <div class="report-field-line">
+          <strong>Flagged User:</strong> <span>${escapeHtml(r.messageAuthorName || 'Unknown')} (ID: ${r.reportedUserId})</span>
+        </div>
+        <div class="report-field-line">
+          <strong>Reported By:</strong> <span>${escapeHtml(r.reporterName || 'User')} (ID: ${r.reporterId})</span>
+        </div>
+        <div class="report-reason-box">
+          <span class="report-reason-label">Reason:</span>
+          <span>${escapeHtml(r.reason || 'No reason provided')}</span>
+        </div>
+      </div>
+
+      <div class="dev-report-msg-preview">
+        <div class="msg-preview-label">REPORTED MESSAGE CONTENT</div>
+        <div class="msg-preview-content">${escapeHtml(r.messageContent || '[No text content / attachment]')}</div>
+      </div>
+
+      ${isPending ? `
+        <div class="dev-report-actions">
+          <button type="button" class="dev-report-btn dismiss-btn">Dismiss Report</button>
+          <button type="button" class="dev-report-btn resolve-btn">Mark Resolved</button>
+          <button type="button" class="dev-report-btn delete-msg-btn">Delete Message</button>
+        </div>
+      ` : `
+        <div class="dev-report-resolved-info">
+          <span>Action: ${escapeHtml(r.actionTaken || 'None')}</span>
+          ${r.reviewedAt ? `<span>Reviewed: ${formatTime(r.reviewedAt)}</span>` : ''}
+        </div>
+      `}
+    `;
+
+    if (isPending) {
+      const dismissBtn = card.querySelector('.dismiss-btn');
+      const resolveBtn = card.querySelector('.resolve-btn');
+      const deleteMsgBtn = card.querySelector('.delete-msg-btn');
+
+      if (dismissBtn) {
+        dismissBtn.addEventListener('click', () => handleReportDevAction(r.id, 'dismissed', 'Dismissed by Developer'));
+      }
+      if (resolveBtn) {
+        resolveBtn.addEventListener('click', () => handleReportDevAction(r.id, 'resolved', 'Marked Resolved'));
+      }
+      if (deleteMsgBtn) {
+        deleteMsgBtn.addEventListener('click', async () => {
+          if (confirm('Delete this reported message immediately from chat?')) {
+            // Delete message via WebSocket
+            if (socket && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({
+                type: 'delete_message',
+                messageId: r.messageId,
+                isDm: r.messageType === 'direct'
+              }));
+            }
+            await handleReportDevAction(r.id, 'resolved', 'Message Deleted by Developer');
+          }
+        });
+      }
+    }
+
+    devReportsList.appendChild(card);
+  });
+}
+
+async function handleReportDevAction(reportId, status, actionTaken) {
+  if (!token) return;
+  try {
+    const res = await fetch(`/api/developer/reports/${reportId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ status, actionTaken })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to update report.');
+      return;
+    }
+    showToast({
+      icon: '✅',
+      title: 'Report Updated',
+      body: `Report #${reportId} set to ${status}.`
+    });
+    loadDevReportedMessages();
+  } catch (err) {
+    alert('Error updating report: ' + err.message);
+  }
+}
+
+if (devRefreshReportsBtn) {
+  devRefreshReportsBtn.addEventListener('click', () => loadDevReportedMessages());
+}
+
+// Real-time developer report notification
+function handleDevReportEvent(msg) {
+  if (!currentUser || !currentUser.isDeveloper) return;
+  if (msg.type === 'new_message_report') {
+    showToast({
+      icon: '🚨',
+      title: 'New Message Report',
+      body: `Report received for ${msg.report.messageAuthorName || 'User'}: "${msg.report.reason}"`,
+      actionText: 'Review',
+      onAction: () => {
+        if (typeof openAppSettingsModal === 'function') {
+          openAppSettingsModal('developer');
+        }
+      }
+    });
+  }
+  loadDevReportedMessages();
+}
+
+// Real-time message update listeners
+function handleMessageEditedEvent(msg) {
+  const container = msg.isDm ? dmMessagesList : messagesList;
+  if (!container || !msg.data) return;
+  const item = container.querySelector(`.message-item[data-message-id="${msg.data.id}"]`);
+  if (!item) return;
+
+  const textEl = item.querySelector('.message-text');
+  if (textEl) {
+    textEl.innerHTML = formatMessageContent(msg.data.content || '') + ' <span class="message-edited-tag">(edited)</span>';
+  }
+}
+
+function handleMessageDeletedEvent(msg) {
+  const container = msg.isDm ? dmMessagesList : messagesList;
+  if (!container) return;
+  const item = container.querySelector(`.message-item[data-message-id="${msg.messageId}"]`);
+  if (!item) return;
+
+  item.classList.add('message-deleted-state');
+  const textEl = item.querySelector('.message-text');
+  if (textEl) {
+    textEl.innerHTML = '<span class="deleted-msg-placeholder">[Message deleted]</span>';
+  }
+  const actionsEl = item.querySelector('.message-hover-actions');
+  if (actionsEl) actionsEl.remove();
+}
+
+function handleMessagePinnedEvent(msg) {
+  const container = msg.isDm ? dmMessagesList : messagesList;
+  if (!container || !msg.data) return;
+  const item = container.querySelector(`.message-item[data-message-id="${msg.data.id}"]`);
+  if (item) {
+    if (msg.data.isPinned) {
+      item.classList.add('message-pinned');
+    } else {
+      item.classList.remove('message-pinned');
+    }
+  }
+
+  showToast({
+    icon: '📌',
+    title: msg.data.isPinned ? 'Message Pinned' : 'Message Unpinned',
+    body: msg.data.isPinned ? 'A message was pinned in this chat.' : 'A message was unpinned.'
+  });
+
+  // If pinned modal is open, refresh it
+  if (pinnedMessagesModalOverlay && !pinnedMessagesModalOverlay.classList.contains('hidden')) {
+    loadPinnedMessages();
+  }
+}
+
 
 
 

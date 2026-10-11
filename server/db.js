@@ -134,6 +134,55 @@ try { db.exec(`ALTER TABLE stickers ADD COLUMN tags TEXT DEFAULT '';`); } catch 
 try { db.exec(`ALTER TABLE stickers ADD COLUMN file_format TEXT DEFAULT 'png';`); } catch {}
 try { db.exec(`ALTER TABLE stickers ADD COLUMN status TEXT DEFAULT 'approved';`); } catch {}
 
+// Message Upgrades: Reply, Forward, Pin, Edit, Soft-delete
+try { db.exec(`ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN reply_to_data TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN is_pinned INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN pinned_at TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN pinned_by INTEGER DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN is_forwarded INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN edited_at TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE messages ADD COLUMN deleted_at TEXT DEFAULT NULL;`); } catch {}
+
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN reply_to_id INTEGER DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN reply_to_data TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN is_pinned INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN pinned_at TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN pinned_by INTEGER DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN is_forwarded INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN is_edited INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN edited_at TEXT DEFAULT NULL;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN is_deleted INTEGER DEFAULT 0;`); } catch {}
+try { db.exec(`ALTER TABLE direct_messages ADD COLUMN deleted_at TEXT DEFAULT NULL;`); } catch {}
+
+// Message Reports System (for Developer Review)
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS message_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reporter_id INTEGER NOT NULL,
+      reported_user_id INTEGER,
+      message_id INTEGER NOT NULL,
+      message_type TEXT NOT NULL DEFAULT 'channel',
+      server_id INTEGER DEFAULT NULL,
+      channel_id INTEGER DEFAULT NULL,
+      channel_name TEXT DEFAULT NULL,
+      reason TEXT NOT NULL,
+      message_content TEXT NOT NULL,
+      message_author_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      action_taken TEXT DEFAULT NULL,
+      reviewed_by INTEGER DEFAULT NULL,
+      reviewed_at TEXT DEFAULT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(reporter_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_reports_status ON message_reports(status, created_at DESC);
+  `);
+} catch {}
+
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS server_roles (
@@ -1797,11 +1846,11 @@ function removeFriend(userId, friendUserId) {
 
 // Message Operations
 const insertMessageStmt = db.prepare(`
-  INSERT INTO messages (server_id, channel_id, author, author_id, author_name, author_username, is_developer, content, timestamp, file_url, file_name, file_size, file_type)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO messages (server_id, channel_id, author, author_id, author_name, author_username, is_developer, content, timestamp, file_url, file_name, file_size, file_type, reply_to_id, reply_to_data, is_forwarded)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, authorUsername, isDeveloper, content, fileUrl = null, fileName = null, fileSize = null, fileType = null }) {
+function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, authorUsername, isDeveloper, content, fileUrl = null, fileName = null, fileSize = null, fileType = null, replyToId = null, replyToData = null, isForwarded = false }) {
   const cleanName = (authorName || 'Anonymous').trim().slice(0, 32);
   const cleanUsername = (authorUsername || 'anon').trim().slice(0, 32);
   const cleanContent = (content || '').trim().slice(0, 2000);
@@ -1809,10 +1858,12 @@ function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, author
   const timestamp = new Date().toISOString();
   const sId = Number(serverId) || 1;
   const cId = Number(channelId) || 1;
+  const replyJson = replyToData ? (typeof replyToData === 'string' ? replyToData : JSON.stringify(replyToData)) : null;
 
   const result = insertMessageStmt.run(
     sId, cId, cleanName, authorId || null, cleanName, cleanUsername, devFlag, cleanContent, timestamp,
-    fileUrl || null, fileName || null, fileSize ? Number(fileSize) : null, fileType || null
+    fileUrl || null, fileName || null, fileSize ? Number(fileSize) : null, fileType || null,
+    replyToId ? Number(replyToId) : null, replyJson, isForwarded ? 1 : 0
   );
   const sender = authorId ? getUserById(authorId) : null;
   return {
@@ -1829,7 +1880,12 @@ function saveMessage({ serverId = 1, channelId = 1, authorId, authorName, author
     fileUrl: fileUrl || null,
     fileName: fileName || null,
     fileSize: fileSize ? Number(fileSize) : null,
-    fileType: fileType || null
+    fileType: fileType || null,
+    replyToId: replyToId ? Number(replyToId) : null,
+    replyToData: replyToData || null,
+    isForwarded: Boolean(isForwarded),
+    isPinned: false,
+    isEdited: false
   };
 }
 
@@ -1841,10 +1897,15 @@ const getHistoryByChannelStmt = db.prepare(`
          COALESCE(u.is_developer, m.is_developer, 0) AS isDeveloper, 
          COALESCE(u.is_deleted, 0) AS isAuthorDeleted,
          m.content, m.timestamp,
-         m.file_url AS fileUrl, m.file_name AS fileName, m.file_size AS fileSize, m.file_type AS fileType
+         m.file_url AS fileUrl, m.file_name AS fileName, m.file_size AS fileSize, m.file_type AS fileType,
+         m.reply_to_id AS replyToId, m.reply_to_data AS replyToData,
+         COALESCE(m.is_pinned, 0) AS isPinned, m.pinned_at AS pinnedAt, m.pinned_by AS pinnedBy,
+         COALESCE(m.is_forwarded, 0) AS isForwarded,
+         COALESCE(m.is_edited, 0) AS isEdited, m.edited_at AS editedAt,
+         COALESCE(m.is_deleted, 0) AS isDeleted, m.deleted_at AS deletedAt
   FROM messages m
   LEFT JOIN users u ON m.author_id = u.id
-  WHERE m.channel_id = ?
+  WHERE m.channel_id = ? AND COALESCE(m.is_deleted, 0) = 0
   ORDER BY m.id DESC
   LIMIT ?
 `);
@@ -1853,33 +1914,43 @@ function getRecentMessages(channelId = 1, limit = 50) {
   const rows = getHistoryByChannelStmt.all(Number(channelId) || 1, limit);
   return rows.reverse().map(r => {
     const isDeleted = Boolean(r.isAuthorDeleted);
+    let replyParsed = null;
+    if (r.replyToData) {
+      try { replyParsed = JSON.parse(r.replyToData); } catch {}
+    }
     return {
       ...r,
       authorName: isDeleted ? 'Deleted User' : (r.authorName || 'Anonymous'),
       authorUsername: isDeleted ? 'deleted' : (r.authorUsername || 'anon'),
       authorAvatarUrl: isDeleted ? null : (r.authorAvatarUrl || null),
       isDeveloper: isDeleted ? false : Boolean(r.isDeveloper),
-      isDeleted
+      isDeleted,
+      replyToData: replyParsed,
+      isPinned: Boolean(r.isPinned),
+      isForwarded: Boolean(r.isForwarded),
+      isEdited: Boolean(r.isEdited)
     };
   });
 }
 
 // Direct Messages Operations
 const insertDirectMessageStmt = db.prepare(`
-  INSERT INTO direct_messages (sender_id, receiver_id, content, timestamp, file_url, file_name, file_size, file_type)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO direct_messages (sender_id, receiver_id, content, timestamp, file_url, file_name, file_size, file_type, reply_to_id, reply_to_data, is_forwarded)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-function saveDirectMessage({ senderId, receiverId, content, fileUrl = null, fileName = null, fileSize = null, fileType = null }) {
+function saveDirectMessage({ senderId, receiverId, content, fileUrl = null, fileName = null, fileSize = null, fileType = null, replyToId = null, replyToData = null, isForwarded = false }) {
   const sId = Number(senderId);
   const rId = Number(receiverId);
   const cleanContent = (content || '').trim().slice(0, 2000);
   const timestamp = new Date().toISOString();
+  const replyJson = replyToData ? (typeof replyToData === 'string' ? replyToData : JSON.stringify(replyToData)) : null;
 
   const sender = getUserById(sId);
   const result = insertDirectMessageStmt.run(
     sId, rId, cleanContent, timestamp,
-    fileUrl || null, fileName || null, fileSize ? Number(fileSize) : null, fileType || null
+    fileUrl || null, fileName || null, fileSize ? Number(fileSize) : null, fileType || null,
+    replyToId ? Number(replyToId) : null, replyJson, isForwarded ? 1 : 0
   );
 
   return {
@@ -1896,7 +1967,12 @@ function saveDirectMessage({ senderId, receiverId, content, fileUrl = null, file
     fileUrl: fileUrl || null,
     fileName: fileName || null,
     fileSize: fileSize ? Number(fileSize) : null,
-    fileType: fileType || null
+    fileType: fileType || null,
+    replyToId: replyToId ? Number(replyToId) : null,
+    replyToData: replyToData || null,
+    isForwarded: Boolean(isForwarded),
+    isPinned: false,
+    isEdited: false
   };
 }
 
@@ -1916,10 +1992,21 @@ const getDirectMessagesStmt = db.prepare(`
     dm.file_url AS fileUrl,
     dm.file_name AS fileName,
     dm.file_size AS fileSize,
-    dm.file_type AS fileType
+    dm.file_type AS fileType,
+    dm.reply_to_id AS replyToId,
+    dm.reply_to_data AS replyToData,
+    COALESCE(dm.is_pinned, 0) AS isPinned,
+    dm.pinned_at AS pinnedAt,
+    dm.pinned_by AS pinnedBy,
+    COALESCE(dm.is_forwarded, 0) AS isForwarded,
+    COALESCE(dm.is_edited, 0) AS isEdited,
+    dm.edited_at AS editedAt,
+    COALESCE(dm.is_deleted, 0) AS isDeleted,
+    dm.deleted_at AS deletedAt
   FROM direct_messages dm
   LEFT JOIN users u ON dm.sender_id = u.id
-  WHERE (dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)
+  WHERE ((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?))
+    AND COALESCE(dm.is_deleted, 0) = 0
   ORDER BY dm.id DESC
   LIMIT ?
 `);
@@ -1930,15 +2017,292 @@ function getDirectMessagesHistory(userId, friendId, limit = 50) {
   const rows = getDirectMessagesStmt.all(uId, fId, fId, uId, limit);
   return rows.reverse().map(r => {
     const isDeleted = Boolean(r.isAuthorDeleted);
+    let replyParsed = null;
+    if (r.replyToData) {
+      try { replyParsed = JSON.parse(r.replyToData); } catch {}
+    }
     return {
       ...r,
       authorName: isDeleted ? 'Deleted User' : (r.authorName || 'User'),
       authorUsername: isDeleted ? 'deleted' : (r.authorUsername || 'user'),
       authorAvatarUrl: isDeleted ? null : (r.authorAvatarUrl || null),
       isDeveloper: isDeleted ? false : Boolean(r.isDeveloper),
-      isDeleted
+      isDeleted,
+      replyToData: replyParsed,
+      isPinned: Boolean(r.isPinned),
+      isForwarded: Boolean(r.isForwarded),
+      isEdited: Boolean(r.isEdited)
     };
   });
+}
+
+// Single Message Fetching
+const getMessageByIdStmt = db.prepare(`
+  SELECT m.id, m.server_id AS serverId, m.channel_id AS channelId, m.author_id AS authorId,
+         COALESCE(u.display_name, m.author_name, m.author) AS authorName,
+         COALESCE(u.username, m.author_username, 'anon') AS authorUsername,
+         u.avatar_url AS authorAvatarUrl,
+         COALESCE(u.is_developer, m.is_developer, 0) AS isDeveloper,
+         m.content, m.timestamp,
+         m.file_url AS fileUrl, m.file_name AS fileName, m.file_size AS fileSize, m.file_type AS fileType,
+         m.reply_to_id AS replyToId, m.reply_to_data AS replyToData,
+         COALESCE(m.is_pinned, 0) AS isPinned, m.pinned_at AS pinnedAt, m.pinned_by AS pinnedBy,
+         COALESCE(m.is_forwarded, 0) AS isForwarded,
+         COALESCE(m.is_edited, 0) AS isEdited, m.edited_at AS editedAt,
+         COALESCE(m.is_deleted, 0) AS isDeleted, m.deleted_at AS deletedAt
+  FROM messages m
+  LEFT JOIN users u ON m.author_id = u.id
+  WHERE m.id = ?
+`);
+
+function getMessageById(messageId) {
+  const r = getMessageByIdStmt.get(Number(messageId));
+  if (!r) return null;
+  let replyParsed = null;
+  if (r.replyToData) {
+    try { replyParsed = JSON.parse(r.replyToData); } catch {}
+  }
+  return {
+    ...r,
+    replyToData: replyParsed,
+    isPinned: Boolean(r.isPinned),
+    isForwarded: Boolean(r.isForwarded),
+    isEdited: Boolean(r.isEdited),
+    isDeleted: Boolean(r.isDeleted)
+  };
+}
+
+const getDirectMessageByIdStmt = db.prepare(`
+  SELECT dm.id, dm.sender_id AS senderId, dm.sender_id AS authorId, dm.receiver_id AS receiverId,
+         COALESCE(u.display_name, 'User') AS authorName,
+         COALESCE(u.username, 'user') AS authorUsername,
+         u.avatar_url AS authorAvatarUrl,
+         COALESCE(u.is_developer, 0) AS isDeveloper,
+         dm.content, dm.timestamp,
+         dm.file_url AS fileUrl, dm.file_name AS fileName, dm.file_size AS fileSize, dm.file_type AS fileType,
+         dm.reply_to_id AS replyToId, dm.reply_to_data AS replyToData,
+         COALESCE(dm.is_pinned, 0) AS isPinned, dm.pinned_at AS pinnedAt, dm.pinned_by AS pinnedBy,
+         COALESCE(dm.is_forwarded, 0) AS isForwarded,
+         COALESCE(dm.is_edited, 0) AS isEdited, dm.edited_at AS editedAt,
+         COALESCE(dm.is_deleted, 0) AS isDeleted, dm.deleted_at AS deletedAt
+  FROM direct_messages dm
+  LEFT JOIN users u ON dm.sender_id = u.id
+  WHERE dm.id = ?
+`);
+
+function getDirectMessageById(messageId) {
+  const r = getDirectMessageByIdStmt.get(Number(messageId));
+  if (!r) return null;
+  let replyParsed = null;
+  if (r.replyToData) {
+    try { replyParsed = JSON.parse(r.replyToData); } catch {}
+  }
+  return {
+    ...r,
+    replyToData: replyParsed,
+    isPinned: Boolean(r.isPinned),
+    isForwarded: Boolean(r.isForwarded),
+    isEdited: Boolean(r.isEdited),
+    isDeleted: Boolean(r.isDeleted)
+  };
+}
+
+// Edit Message
+function editMessage({ messageId, newContent, userId, isDeveloper = false, isDm = false }) {
+  const mId = Number(messageId);
+  const clean = String(newContent || '').trim().slice(0, 2000);
+  if (!clean) throw new Error('Message content cannot be empty.');
+  const now = new Date().toISOString();
+
+  if (isDm) {
+    const msg = getDirectMessageById(mId);
+    if (!msg) throw new Error('Direct message not found.');
+    if (msg.senderId !== Number(userId) && !isDeveloper) {
+      throw new Error('You can only edit your own messages.');
+    }
+    db.prepare(`UPDATE direct_messages SET content = ?, is_edited = 1, edited_at = ? WHERE id = ?`).run(clean, now, mId);
+    return getDirectMessageById(mId);
+  } else {
+    const msg = getMessageById(mId);
+    if (!msg) throw new Error('Message not found.');
+    if (msg.authorId !== Number(userId) && !isDeveloper) {
+      throw new Error('You can only edit your own messages.');
+    }
+    db.prepare(`UPDATE messages SET content = ?, is_edited = 1, edited_at = ? WHERE id = ?`).run(clean, now, mId);
+    return getMessageById(mId);
+  }
+}
+
+// Delete Message (Soft delete)
+function deleteMessage({ messageId, userId, isDeveloper = false, isDm = false }) {
+  const mId = Number(messageId);
+  const now = new Date().toISOString();
+
+  if (isDm) {
+    const msg = getDirectMessageById(mId);
+    if (!msg) throw new Error('Direct message not found.');
+    if (msg.senderId !== Number(userId) && !isDeveloper) {
+      throw new Error('You can only delete your own messages.');
+    }
+    db.prepare(`UPDATE direct_messages SET is_deleted = 1, deleted_at = ? WHERE id = ?`).run(now, mId);
+    return { id: mId, isDm: true, senderId: msg.senderId, receiverId: msg.receiverId };
+  } else {
+    const msg = getMessageById(mId);
+    if (!msg) throw new Error('Message not found.');
+    const canDelete = msg.authorId === Number(userId) || isDeveloper || hasPermission(userId, msg.serverId, PERMISSION_FLAGS.MANAGE_MESSAGES);
+    if (!canDelete) {
+      throw new Error('You do not have permission to delete this message.');
+    }
+    db.prepare(`UPDATE messages SET is_deleted = 1, deleted_at = ? WHERE id = ?`).run(now, mId);
+    return { id: mId, isDm: false, serverId: msg.serverId, channelId: msg.channelId };
+  }
+}
+
+// Pin / Unpin Message
+function togglePinMessage({ messageId, userId, isDeveloper = false, isDm = false }) {
+  const mId = Number(messageId);
+  const now = new Date().toISOString();
+
+  if (isDm) {
+    const msg = getDirectMessageById(mId);
+    if (!msg) throw new Error('Direct message not found.');
+    const newPinned = msg.isPinned ? 0 : 1;
+    db.prepare(`UPDATE direct_messages SET is_pinned = ?, pinned_at = ?, pinned_by = ? WHERE id = ?`)
+      .run(newPinned, newPinned ? now : null, newPinned ? Number(userId) : null, mId);
+    return getDirectMessageById(mId);
+  } else {
+    const msg = getMessageById(mId);
+    if (!msg) throw new Error('Message not found.');
+    const canPin = isDeveloper || hasPermission(userId, msg.serverId, PERMISSION_FLAGS.MANAGE_MESSAGES);
+    if (!canPin) {
+      throw new Error('You need Manage Messages permission to pin messages in this channel.');
+    }
+    const newPinned = msg.isPinned ? 0 : 1;
+    db.prepare(`UPDATE messages SET is_pinned = ?, pinned_at = ?, pinned_by = ? WHERE id = ?`)
+      .run(newPinned, newPinned ? now : null, newPinned ? Number(userId) : null, mId);
+    return getMessageById(mId);
+  }
+}
+
+// Get Pinned Messages
+function getPinnedMessages({ channelId = null, serverId = null, userId = null, friendId = null, isDm = false }) {
+  if (isDm) {
+    const uId = Number(userId);
+    const fId = Number(friendId);
+    const rows = db.prepare(`
+      SELECT dm.id, dm.sender_id AS senderId, dm.sender_id AS authorId, dm.receiver_id AS receiverId,
+             COALESCE(u.display_name, 'User') AS authorName,
+             COALESCE(u.username, 'user') AS authorUsername,
+             u.avatar_url AS authorAvatarUrl,
+             COALESCE(u.is_developer, 0) AS isDeveloper,
+             dm.content, dm.timestamp, dm.file_url AS fileUrl, dm.file_name AS fileName,
+             dm.pinned_at AS pinnedAt, dm.pinned_by AS pinnedBy
+      FROM direct_messages dm
+      LEFT JOIN users u ON dm.sender_id = u.id
+      WHERE ((dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?))
+        AND dm.is_pinned = 1 AND COALESCE(dm.is_deleted, 0) = 0
+      ORDER BY dm.pinned_at DESC
+    `).all(uId, fId, fId, uId);
+    return rows;
+  } else {
+    const cId = Number(channelId);
+    const rows = db.prepare(`
+      SELECT m.id, m.server_id AS serverId, m.channel_id AS channelId, m.author_id AS authorId,
+             COALESCE(u.display_name, m.author_name, m.author) AS authorName,
+             COALESCE(u.username, m.author_username, 'anon') AS authorUsername,
+             u.avatar_url AS authorAvatarUrl,
+             COALESCE(u.is_developer, m.is_developer, 0) AS isDeveloper,
+             m.content, m.timestamp, m.file_url AS fileUrl, m.file_name AS fileName,
+             m.pinned_at AS pinnedAt, m.pinned_by AS pinnedBy
+      FROM messages m
+      LEFT JOIN users u ON m.author_id = u.id
+      WHERE m.channel_id = ? AND m.is_pinned = 1 AND COALESCE(m.is_deleted, 0) = 0
+      ORDER BY m.pinned_at DESC
+    `).all(cId);
+    return rows;
+  }
+}
+
+// Message Reports Operations (for Developer Dashboard)
+function createMessageReport({ reporterId, messageId, messageType = 'channel', reason = 'inappropriate' }) {
+  const repId = Number(reporterId);
+  const mId = Number(messageId);
+  const now = new Date().toISOString();
+  let content = '';
+  let authorName = '';
+  let reportedUserId = null;
+  let serverId = null;
+  let channelId = null;
+  let channelName = '';
+
+  if (messageType === 'dm') {
+    const msg = getDirectMessageById(mId);
+    if (!msg) throw new Error('Reported message not found.');
+    content = msg.content || (msg.fileName ? `[Attachment: ${msg.fileName}]` : '[Empty message]');
+    authorName = msg.authorName || msg.authorUsername || 'User';
+    reportedUserId = msg.senderId;
+    channelName = 'Direct Message';
+  } else {
+    const msg = getMessageById(mId);
+    if (!msg) throw new Error('Reported message not found.');
+    content = msg.content || (msg.fileName ? `[Attachment: ${msg.fileName}]` : '[Empty message]');
+    authorName = msg.authorName || msg.authorUsername || 'User';
+    reportedUserId = msg.authorId;
+    serverId = msg.serverId;
+    channelId = msg.channelId;
+    const ch = getChannelById(channelId);
+    channelName = ch ? ch.name : 'channel';
+  }
+
+  const res = db.prepare(`
+    INSERT INTO message_reports (
+      reporter_id, reported_user_id, message_id, message_type,
+      server_id, channel_id, channel_name, reason,
+      message_content, message_author_name, status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+  `).run(
+    repId, reportedUserId, mId, messageType,
+    serverId, channelId, channelName, String(reason).trim().slice(0, 500),
+    content.slice(0, 2000), authorName.slice(0, 50), now
+  );
+
+  return getMessageReportById(Number(res.lastInsertRowid));
+}
+
+function getMessageReportById(reportId) {
+  const row = db.prepare(`
+    SELECT r.*,
+           rep.username AS reporterUsername, rep.display_name AS reporterDisplayName,
+           tgt.username AS reportedUsername, tgt.display_name AS reportedDisplayName
+    FROM message_reports r
+    LEFT JOIN users rep ON r.reporter_id = rep.id
+    LEFT JOIN users tgt ON r.reported_user_id = tgt.id
+    WHERE r.id = ?
+  `).get(Number(reportId));
+  return row || null;
+}
+
+function getAllMessageReports() {
+  const rows = db.prepare(`
+    SELECT r.*,
+           rep.username AS reporterUsername, rep.display_name AS reporterDisplayName,
+           tgt.username AS reportedUsername, tgt.display_name AS reportedDisplayName
+    FROM message_reports r
+    LEFT JOIN users rep ON r.reporter_id = rep.id
+    LEFT JOIN users tgt ON r.reported_user_id = tgt.id
+    ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END ASC, r.id DESC
+  `).all();
+  return rows;
+}
+
+function updateMessageReportStatus({ reportId, status, actionTaken = null, devUserId = null }) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE message_reports
+    SET status = ?, action_taken = ?, reviewed_by = ?, reviewed_at = ?
+    WHERE id = ?
+  `).run(status, actionTaken, devUserId ? Number(devUserId) : null, now, Number(reportId));
+  return getMessageReportById(reportId);
 }
 
 // Mutual Friends and Mutual Servers
@@ -2165,7 +2529,7 @@ function getServerMembers(serverId) {
     FROM server_members sm
     JOIN users u ON sm.user_id = u.id
     JOIN servers s ON sm.server_id = s.id
-    WHERE sm.server_id = ? AND u.is_deleted = 0
+    WHERE sm.server_id = ? AND u.is_deleted = 0 AND LOWER(u.username) != 'rsl1310'
     ORDER BY 
       CASE WHEN u.id = s.created_by THEN 0 WHEN sm.role = 'admin' THEN 1 ELSE 2 END ASC,
       u.display_name ASC
@@ -2539,6 +2903,17 @@ module.exports = {
   deleteSticker,
   getCustomEmojis,
   createCustomEmoji,
-  deleteCustomEmoji
+  deleteCustomEmoji,
+  // Message Upgrades: Edit, Delete, Pin, Report
+  getMessageById,
+  getDirectMessageById,
+  editMessage,
+  deleteMessage,
+  togglePinMessage,
+  getPinnedMessages,
+  createMessageReport,
+  getMessageReportById,
+  getAllMessageReports,
+  updateMessageReportStatus
 };
 

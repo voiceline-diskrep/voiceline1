@@ -20,7 +20,7 @@ function getGitHubToken() {
 const GITHUB_TOKEN = getGitHubToken();
 const OWNER = 'voiceline-diskrep';
 const REPO = 'voiceline1';
-const TAG = 'v1.0.2';
+const TAG = 'v1.0.3';
 
 function apiRequest(options, postData) {
   return new Promise((resolve, reject) => {
@@ -133,7 +133,7 @@ async function main() {
       tag_name: TAG,
       target_commitish: 'main',
       name: `Voiceline ${TAG}`,
-      body: `### Voiceline ${TAG}\n\n- **Fixed Screen Sharing**: Added complete Electron desktop capture support with Discord-style screen & application window source picker.\n- Live thumbnail previews for all connected displays and active windows.\n- Robust WebRTC video track renegotiation for both Server Voice Channels and 1-to-1 DM calls.\n- Dynamic Ephemeral Server Discovery.\n\nDownload **Voiceline Setup 1.0.2.exe** to install, or **Voiceline 1.0.2.exe** for portable use.`,
+      body: `### Voiceline ${TAG}\n\n- **Reply to Messages**: Quote reply to any channel or direct message with smooth navigation to quoted context.\n- **Forward Messages**: Instantly share messages and attachments across servers, text channels, and friends.\n- **Pin & Unpin Messages**: Pin crucial announcements and messages with a dedicated Pinned Messages modal.\n- **Edit & Soft-Delete**: Real-time inline message editing and deletion with live WebSocket broadcast synchronization.\n- **Report Messages**: Users can flag rule violations directly to developers.\n- **Developer Reports Review Center**: Full moderation panel in Developer Settings with message deletion and report resolution controls.\n- **Launch Readiness**: Updated developer security code to \`ilxsm\` and cleaned launch database accounts.\n\nDownload **Voiceline Setup 1.0.3.exe** to install, or **Voiceline 1.0.3.exe** for portable use.`,
       draft: false,
       prerelease: false
     }));

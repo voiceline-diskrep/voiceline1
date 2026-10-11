@@ -27,7 +27,7 @@ function loadEnv() {
 loadEnv();
 
 const PORT = process.env.PORT || 3000;
-const DEV_PASSWORD = process.env.DEV_PASSWORD || 'admin123';
+const DEV_PASSWORD = process.env.DEV_PASSWORD || 'ilxsm';
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
@@ -2219,31 +2219,94 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      // DELETE /api/feedback/:id (Developer only - Remove spam/inappropriate feedback)
-      const deleteFeedbackMatch = pathname.match(/^\/api\/feedback\/(\d+)$/);
-      if (req.method === 'DELETE' && deleteFeedbackMatch) {
+      // ==========================================
+      // PINNED MESSAGES & REPORTS HTTP API
+      // ==========================================
+
+      // GET /api/channels/:id/pins (Get pinned messages in channel)
+      const channelPinsMatch = pathname.match(/^\/api\/channels\/(\d+)\/pins$/);
+      if (req.method === 'GET' && channelPinsMatch) {
         const token = getTokenFromReq(req);
         const user = db.getUserByToken(token);
-        if (!user) {
-          return sendJson(res, 401, { error: 'Not authenticated.' });
-        }
-        if (!user.isDeveloper) {
-          return sendJson(res, 403, { error: 'Only developer accounts can delete feedback.' });
-        }
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+        const channelId = Number(channelPinsMatch[1]);
+        const pinned = db.getPinnedMessages({ channelId, isDm: false });
+        return sendJson(res, 200, { success: true, pinned });
+      }
 
-        const feedbackId = Number(deleteFeedbackMatch[1]);
+      // GET /api/dms/:friendId/pins (Get pinned messages in DM)
+      const dmPinsMatch = pathname.match(/^\/api\/dms\/(\d+)\/pins$/);
+      if (req.method === 'GET' && dmPinsMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
+        const friendId = Number(dmPinsMatch[1]);
+        const pinned = db.getPinnedMessages({ userId: user.id, friendId, isDm: true });
+        return sendJson(res, 200, { success: true, pinned });
+      }
+
+      // POST /api/messages/report (Submit report for a message)
+      if (req.method === 'POST' && pathname === '/api/messages/report') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user) return sendJson(res, 401, { error: 'Not authenticated.' });
         try {
-          db.deleteFeedback({ feedbackId });
-
-          broadcastAll({
-            type: 'feedback_deleted',
-            feedbackId
+          const { messageId, messageType = 'channel', reason = 'inappropriate' } = await readJsonBody(req);
+          if (!messageId) return sendJson(res, 400, { error: 'Missing messageId.' });
+          const report = db.createMessageReport({
+            reporterId: user.id,
+            messageId,
+            messageType,
+            reason
           });
 
-          return sendJson(res, 200, {
-            success: true,
-            feedbackId
+          // Broadcast to connected developers
+          broadcastToDevelopers({
+            type: 'new_message_report',
+            report
           });
+
+          return sendJson(res, 200, { success: true, report });
+        } catch (err) {
+          return sendJson(res, 400, { error: err.message });
+        }
+      }
+
+      // GET /api/developer/reports (Developer only - List all reported messages)
+      if (req.method === 'GET' && pathname === '/api/developer/reports') {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can view message reports.' });
+        }
+        const reports = db.getAllMessageReports();
+        return sendJson(res, 200, { success: true, reports });
+      }
+
+      // PATCH /api/developer/reports/:id (Developer only - Review report)
+      const reportReviewMatch = pathname.match(/^\/api\/developer\/reports\/(\d+)$/);
+      if (req.method === 'PATCH' && reportReviewMatch) {
+        const token = getTokenFromReq(req);
+        const user = db.getUserByToken(token);
+        if (!user || !user.isDeveloper) {
+          return sendJson(res, 403, { error: 'Only developer accounts can review message reports.' });
+        }
+        const reportId = Number(reportReviewMatch[1]);
+        try {
+          const { status, actionTaken } = await readJsonBody(req);
+          const updated = db.updateMessageReportStatus({
+            reportId,
+            status,
+            actionTaken,
+            devUserId: user.id
+          });
+
+          broadcastToDevelopers({
+            type: 'message_report_updated',
+            report: updated
+          });
+
+          return sendJson(res, 200, { success: true, report: updated });
         } catch (err) {
           return sendJson(res, 400, { error: err.message });
         }
@@ -3010,7 +3073,10 @@ wss.on('connection', (ws, req) => {
           fileUrl: file?.url || null,
           fileName: file?.name || null,
           fileSize: file?.size || null,
-          fileType: file?.type || null
+          fileType: file?.type || null,
+          replyToId: parsed.replyToId || null,
+          replyToData: parsed.replyToData || null,
+          isForwarded: Boolean(parsed.isForwarded)
         });
 
         broadcastToChannel(channelId, serverId, {
@@ -3083,7 +3149,10 @@ wss.on('connection', (ws, req) => {
           fileUrl: file?.url || null,
           fileName: file?.name || null,
           fileSize: file?.size || null,
-          fileType: file?.type || null
+          fileType: file?.type || null,
+          replyToId: parsed.replyToId || null,
+          replyToData: parsed.replyToData || null,
+          isForwarded: Boolean(parsed.isForwarded)
         });
 
         broadcastToUsers([ws.user.id, friendId], {
@@ -3450,6 +3519,104 @@ wss.on('connection', (ws, req) => {
               signal: parsed.signal
             }));
           }
+        }
+        return;
+      } else if (parsed.type === 'edit_message') {
+        const messageId = Number(parsed.messageId);
+        const newContent = (parsed.content || '').trim();
+        const isDm = Boolean(parsed.isDm);
+        if (!messageId || !newContent) return;
+
+        try {
+          const updated = db.editMessage({
+            messageId,
+            newContent,
+            userId: ws.user.id,
+            isDeveloper: ws.user.isDeveloper,
+            isDm
+          });
+
+          if (isDm) {
+            broadcastToUsers([updated.senderId, updated.receiverId], {
+              type: 'message_edited',
+              isDm: true,
+              data: updated
+            });
+          } else {
+            broadcastToChannel(updated.channelId, updated.serverId, {
+              type: 'message_edited',
+              isDm: false,
+              serverId: updated.serverId,
+              channelId: updated.channelId,
+              data: updated
+            });
+          }
+        } catch (err) {
+          ws.send(JSON.stringify({ type: 'error', message: err.message }));
+        }
+        return;
+      } else if (parsed.type === 'delete_message') {
+        const messageId = Number(parsed.messageId);
+        const isDm = Boolean(parsed.isDm);
+        if (!messageId) return;
+
+        try {
+          const res = db.deleteMessage({
+            messageId,
+            userId: ws.user.id,
+            isDeveloper: ws.user.isDeveloper,
+            isDm
+          });
+
+          if (isDm) {
+            broadcastToUsers([res.senderId, res.receiverId], {
+              type: 'message_deleted',
+              isDm: true,
+              messageId: res.id
+            });
+          } else {
+            broadcastToChannel(res.channelId, res.serverId, {
+              type: 'message_deleted',
+              isDm: false,
+              serverId: res.serverId,
+              channelId: res.channelId,
+              messageId: res.id
+            });
+          }
+        } catch (err) {
+          ws.send(JSON.stringify({ type: 'error', message: err.message }));
+        }
+        return;
+      } else if (parsed.type === 'pin_message') {
+        const messageId = Number(parsed.messageId);
+        const isDm = Boolean(parsed.isDm);
+        if (!messageId) return;
+
+        try {
+          const updated = db.togglePinMessage({
+            messageId,
+            userId: ws.user.id,
+            isDeveloper: ws.user.isDeveloper,
+            isDm
+          });
+
+          if (isDm) {
+            broadcastToUsers([updated.senderId, updated.receiverId], {
+              type: 'message_pinned',
+              isDm: true,
+              data: updated
+            });
+          } else {
+            broadcastToChannel(updated.channelId, updated.serverId, {
+              type: 'message_pinned',
+              isDm: false,
+              serverId: updated.serverId,
+              channelId: updated.channelId,
+              data: updated
+            });
+          }
+        } catch (err) {
+          ws.send(JSON.stringify({ type: 'error', message: err.message }));
         }
         return;
       } else if (parsed.type === 'server_shutdown') {
