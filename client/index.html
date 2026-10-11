@@ -43,7 +43,7 @@
       <form id="loginForm" class="auth-form" autocomplete="on">
         <div class="form-group">
           <label for="loginUsername">Username</label>
-          <input type="text" id="loginUsername" placeholder="e.g. russell" required autocomplete="username" />
+          <input type="text" id="loginUsername" placeholder="e.g. john" required autocomplete="username" />
         </div>
         <div class="form-group">
           <label for="loginPassword">Password</label>
@@ -57,11 +57,11 @@
       <form id="signupForm" class="auth-form hidden" autocomplete="off">
         <div class="form-group">
           <label for="signupDisplayName">Display Name <span class="label-hint">(what friends see)</span></label>
-          <input type="text" id="signupDisplayName" placeholder="e.g. Russell K." required maxlength="32" />
+          <input type="text" id="signupDisplayName" placeholder="e.g. John D." required maxlength="32" />
         </div>
         <div class="form-group">
           <label for="signupUsername">Desired Username <span class="label-hint">(unique login name)</span></label>
-          <input type="text" id="signupUsername" placeholder="e.g. russell" required maxlength="20" />
+          <input type="text" id="signupUsername" placeholder="e.g. john" required maxlength="20" />
         </div>
 
         <!-- Username Suggestion Alert -->
@@ -86,7 +86,7 @@
 
         <!-- Developer Password (only visible when box checked) -->
         <div class="form-group hidden" id="devPasswordGroup">
-          <label for="signupDevPassword">Developer Master Password <span class="label-hint">(from your .env file)</span></label>
+          <label for="signupDevPassword">Developer Master Password</label>
           <input type="password" id="signupDevPassword" placeholder="Developer secret password" />
         </div>
 

@@ -378,7 +378,7 @@ const server = http.createServer(async (req, res) => {
         if (isDeveloper) {
           if (!devPassword || devPassword !== DEV_PASSWORD) {
             return sendJson(res, 403, { 
-              error: 'Invalid developer password. Please verify the developer password in your .env file.' 
+              error: 'Invalid developer password. Please provide the correct developer master password.' 
             });
           }
         }
