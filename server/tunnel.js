@@ -28,13 +28,22 @@ let foundLink = false;
 
 function publishToGitHub(url) {
   try {
-    fs.writeFileSync(serverTxtPath, url, 'utf8');
+    fs.writeFileSync(serverTxtPath, url.trim(), 'utf8');
     console.log('  [1/3] Saved live URL to server.txt');
+
+    // Pull remote changes first to avoid push rejections
+    try {
+      execSync('git pull --rebase origin main', { cwd: projectRoot, stdio: 'ignore' });
+    } catch (e) {}
 
     // Stage and commit
     execSync('git add server.txt', { cwd: projectRoot, stdio: 'ignore' });
-    execSync(`git commit -m "chore(live): update server URL to ${url} [skip ci]"`, { cwd: projectRoot, stdio: 'ignore' });
-    console.log('  [2/3] Committed server URL update');
+    try {
+      execSync(`git commit -m "chore(live): update server URL to ${url.trim()} [skip ci]"`, { cwd: projectRoot, stdio: 'ignore' });
+      console.log('  [2/3] Committed server URL update');
+    } catch (commitErr) {
+      console.log('  [2/3] URL unchanged or already committed');
+    }
 
     // Push to GitHub
     execSync('git push origin main', { cwd: projectRoot, stdio: 'ignore' });
