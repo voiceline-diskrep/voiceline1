@@ -981,14 +981,52 @@ profilePfpInput.addEventListener('change', (e) => {
   myProfileError.textContent = '';
   const reader = new FileReader();
   reader.onload = (event) => {
-    pendingAvatarBase64 = event.target.result;
-    pendingRemoveAvatar = false;
-    renderAvatarInto(myProfileAvatarPreview, {
-      avatarUrl: pendingAvatarBase64,
-      displayName: profileDisplayNameInput.value || currentUser.displayName,
-      username: currentUser.username
-    });
-    removeAvatarBtn.classList.remove('hidden');
+    const rawDataUrl = event.target.result;
+    
+    // Auto-compress avatar into a clean square thumbnail (max 256x256)
+    const img = new Image();
+    img.onload = () => {
+      const maxDim = 256;
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      pendingAvatarBase64 = canvas.toDataURL(mimeType, 0.88);
+      pendingRemoveAvatar = false;
+
+      renderAvatarInto(myProfileAvatarPreview, {
+        avatarUrl: pendingAvatarBase64,
+        displayName: profileDisplayNameInput.value || currentUser.displayName,
+        username: currentUser.username
+      });
+      removeAvatarBtn.classList.remove('hidden');
+    };
+    img.onerror = () => {
+      pendingAvatarBase64 = rawDataUrl;
+      pendingRemoveAvatar = false;
+      renderAvatarInto(myProfileAvatarPreview, {
+        avatarUrl: pendingAvatarBase64,
+        displayName: profileDisplayNameInput.value || currentUser.displayName,
+        username: currentUser.username
+      });
+      removeAvatarBtn.classList.remove('hidden');
+    };
+    img.src = rawDataUrl;
   };
   reader.readAsDataURL(file);
 });
