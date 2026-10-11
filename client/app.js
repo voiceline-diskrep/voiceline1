@@ -2073,6 +2073,10 @@ async function handleVoiceChannelClick(channelId, channelName) {
 function openVoiceStageView() {
   isViewingVoiceStage = true;
 
+  // Make sure chat layout is active and friends tab is hidden
+  if (chatLayout) chatLayout.classList.remove('hidden');
+  if (friendsLayout) friendsLayout.classList.add('hidden');
+
   // Hide the server text chat header and message body container completely so voice stage owns the full screen
   const chatHeader = document.querySelector('#chatLayout .chat-header');
   if (chatHeader) chatHeader.classList.add('hidden');
@@ -4617,30 +4621,31 @@ async function joinServerVoiceChannel(channelId, channelName) {
     leaveServerVoiceChannel(false);
   }
 
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  let micObtained = false;
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    try {
+      serverVoiceState.localStream = await navigator.mediaDevices.getUserMedia({ audio: getAudioInputConstraints(), video: false });
+      micObtained = true;
+    } catch (err) {
+      console.warn('Microphone access unavailable or denied:', err.message);
+      showToast({
+        icon: '🎧',
+        title: 'Joined Voice (Listen Only)',
+        body: 'Microphone not detected or permission denied. You can still listen and watch!'
+      });
+    }
+  } else {
     showToast({
-      icon: '🎙️',
-      title: 'Microphone Required',
-      body: 'WebRTC voice requires microphone access (supported over HTTPS or localhost).'
+      icon: '🎧',
+      title: 'Joined Voice (Listen Only)',
+      body: 'WebRTC microphone API not available. Listening mode active.'
     });
-    return;
-  }
-
-  try {
-    serverVoiceState.localStream = await navigator.mediaDevices.getUserMedia({ audio: getAudioInputConstraints(), video: false });
-  } catch (err) {
-    showToast({
-      icon: '🎙️',
-      title: 'Microphone Error',
-      body: 'Could not access microphone: ' + (err.message || err.name)
-    });
-    return;
   }
 
   serverVoiceState.serverId = activeServerId;
   serverVoiceState.channelId = channelId;
   serverVoiceState.channelName = channelName;
-  serverVoiceState.isMuted = false;
+  serverVoiceState.isMuted = !micObtained;
   serverVoiceState.isDeafened = false;
   serverVoiceState.isVideo = false;
   serverVoiceState.isScreenShare = false;
@@ -5163,9 +5168,32 @@ function renderVoiceStageGrid() {
   if (!voiceStageGrid) return;
   voiceStageGrid.innerHTML = '';
 
-  const participants = serverVoiceState.participants || [];
+  const participants = (serverVoiceState.participants && serverVoiceState.participants.length > 0)
+    ? [...serverVoiceState.participants]
+    : (serverVoiceState.channelId && currentUser ? [{
+        userId: currentUser.id,
+        username: currentUser.username,
+        displayName: currentUser.displayName,
+        avatarUrl: currentUser.avatarUrl,
+        isMuted: serverVoiceState.isMuted,
+        isDeafened: serverVoiceState.isDeafened,
+        isVideo: serverVoiceState.isVideo,
+        isScreenShare: serverVoiceState.isScreenShare
+      }] : []);
+
   if (voiceStageCount) {
     voiceStageCount.textContent = `${participants.length} Connected`;
+  }
+
+  if (participants.length === 0) {
+    voiceStageGrid.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); gap: 12px; margin: auto;">
+        <span style="font-size: 48px;">🔊</span>
+        <h3 style="font-size: 18px; color: var(--text-header); margin: 0;">Voice Channel is Empty</h3>
+        <p style="font-size: 14px; margin: 0;">Waiting for participants to join...</p>
+      </div>
+    `;
+    return;
   }
 
   participants.forEach(p => {
@@ -5181,9 +5209,9 @@ function renderVoiceStageGrid() {
 
     const displayName = p.displayName || p.username || 'User';
     const initial = displayName.charAt(0) ? displayName.charAt(0).toUpperCase() : 'U';
-    let avatarContent = initial;
+    let avatarContent = `<span class="voice-card-initial">${initial}</span>`;
     if (p.avatarUrl) {
-      avatarContent = `<img src="${resolveAssetUrl(p.avatarUrl)}" alt="${escapeHtml(displayName)}" />`;
+      avatarContent = `<img src="${resolveAssetUrl(p.avatarUrl)}" alt="${escapeHtml(displayName)}" onerror="this.remove();" /><span class="voice-card-initial">${initial}</span>`;
     }
 
     let badgeIcons = '';

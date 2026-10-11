@@ -20,7 +20,7 @@ function getGitHubToken() {
 const GITHUB_TOKEN = getGitHubToken();
 const OWNER = 'voiceline-diskrep';
 const REPO = 'voiceline1';
-const TAG = 'v1.0.0';
+const TAG = 'v1.0.1';
 
 function apiRequest(options, postData) {
   return new Promise((resolve, reject) => {
@@ -150,9 +150,10 @@ async function main() {
   // 2. Upload assets
   console.log('\n[3/3] Uploading binary files to GitHub Releases...');
   const distDir = path.join(__dirname, '..', 'dist-electron');
+  const ver = TAG.replace(/^v/, '');
   const filesToUpload = [
-    'Voiceline Setup 1.0.0.exe',
-    'Voiceline 1.0.0.exe',
+    `Voiceline Setup ${ver}.exe`,
+    `Voiceline ${ver}.exe`,
     'latest.yml'
   ];
 
