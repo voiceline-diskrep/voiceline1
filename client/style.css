@@ -2543,13 +2543,14 @@ body.no-animations .gif-picker-popover.is-closing {
 /* Toast Notifications */
 .toast-container {
   position: fixed;
-  bottom: 24px;
+  top: 48px;
   right: 24px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   z-index: 3000;
   pointer-events: none;
+  max-width: calc(100vw - 32px);
 }
 
 .toast-item {
@@ -2564,22 +2565,22 @@ body.no-animations .gif-picker-popover.is-closing {
   gap: 14px;
   min-width: 300px;
   max-width: 420px;
-  animation: toastSlideIn 0.25s ease-out;
+  animation: toastSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 .toast-item.removing {
   opacity: 0;
-  transform: translateX(30px);
+  transform: translateX(35px);
 }
 
 @keyframes toastSlideIn {
   from {
-    transform: translateY(20px);
+    transform: translateX(35px);
     opacity: 0;
   }
   to {
-    transform: translateY(0);
+    transform: translateX(0);
     opacity: 1;
   }
 }
@@ -2637,6 +2638,18 @@ body.no-animations .gif-picker-popover.is-closing {
 
 .toast-close-btn:hover {
   color: var(--text-header);
+}
+
+@media (max-width: 600px) {
+  .toast-container {
+    top: 16px;
+    right: 12px;
+    left: 12px;
+  }
+  .toast-item {
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 
 /* =======================================================
