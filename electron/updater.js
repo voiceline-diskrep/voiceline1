@@ -34,9 +34,9 @@ function getAppVersion() {
   }
   try {
     const pkg = require('../package.json');
-    return pkg.version || '1.0.0';
+    return pkg.version || '1.0.8';
   } catch {
-    return '1.0.0';
+    return '1.0.8';
   }
 }
 

@@ -14165,8 +14165,15 @@ let appLatestUpdateInfo = null;
 let appUpdateDownloadInProgress = false;
 let appUpdateDownloadedFilePath = null;
 let lastCheckedUpdateTime = null;
-const CURRENT_APP_VERSION = '1.0.0';
+let CURRENT_APP_VERSION = '1.0.8';
 const GITHUB_REPO_URL = 'https://github.com/voiceline-diskrep/voiceline1';
+
+// Synchronize runtime version immediately if in Electron
+if (window.electronDesktop && window.electronDesktop.getAppVersion) {
+  window.electronDesktop.getAppVersion().then(v => {
+    if (v) CURRENT_APP_VERSION = v.replace(/^v/i, '');
+  }).catch(() => {});
+}
 
 function formatUpdateCheckTime(d) {
   if (!d) return 'Never checked';
@@ -14177,8 +14184,30 @@ function formatUpdateCheckTime(d) {
   }
 }
 
+function hideUpdateIndicators() {
+  appLatestUpdateInfo = null;
+  const updateBtns = [
+    document.getElementById('chatUpdateBtn'),
+    document.getElementById('friendsUpdateBtn'),
+    document.getElementById('dmUpdateBtn')
+  ];
+  updateBtns.forEach(btn => {
+    if (btn) btn.classList.add('hidden');
+  });
+  const settingsDot = document.getElementById('settingsUpdateDot');
+  if (settingsDot) settingsDot.classList.add('hidden');
+}
+
 function handleUpdateDetected(info) {
-  if (!info || !info.hasUpdate) return;
+  if (!info || !info.hasUpdate) {
+    hideUpdateIndicators();
+    return;
+  }
+  // Double-check semver to guarantee we never show unless latestVersion > CURRENT_APP_VERSION
+  if (!isNewerClientVersion(info.latestVersion, CURRENT_APP_VERSION)) {
+    hideUpdateIndicators();
+    return;
+  }
   appLatestUpdateInfo = info;
   lastCheckedUpdateTime = new Date();
 
@@ -14222,6 +14251,14 @@ async function checkAppUpdates(isManual = false) {
     checkBtn.textContent = 'Checking GitHub...';
   }
 
+  // Sync actual runtime app version if running inside Electron
+  if (window.electronDesktop && window.electronDesktop.getAppVersion) {
+    try {
+      const v = await window.electronDesktop.getAppVersion();
+      if (v) CURRENT_APP_VERSION = v.replace(/^v/i, '');
+    } catch {}
+  }
+
   try {
     let result = null;
     if (window.electronDesktop && window.electronDesktop.checkForUpdates) {
@@ -14253,12 +14290,13 @@ async function checkAppUpdates(isManual = false) {
 
     lastCheckedUpdateTime = new Date();
 
-    if (result && result.hasUpdate) {
+    if (result && result.hasUpdate && isNewerClientVersion(result.latestVersion, CURRENT_APP_VERSION)) {
       handleUpdateDetected(result);
       if (isManual) {
         openAppUpdateModal();
       }
     } else {
+      hideUpdateIndicators();
       renderUpdatesSettingsUI();
       if (isManual && typeof showToast === 'function') {
         showToast({
@@ -14302,6 +14340,19 @@ function openAppUpdateModal() {
   const overlay = document.getElementById('appUpdateModalOverlay');
   if (!overlay) return;
 
+  // ONLY open the update modal if an update was genuinely detected!
+  if (!appLatestUpdateInfo || !appLatestUpdateInfo.hasUpdate || !isNewerClientVersion(appLatestUpdateInfo.latestVersion, CURRENT_APP_VERSION)) {
+    hideUpdateIndicators();
+    if (typeof showToast === 'function') {
+      showToast({
+        icon: '✅',
+        title: 'Up to Date',
+        body: `Voiceline is up to date (v${CURRENT_APP_VERSION}).`
+      });
+    }
+    return;
+  }
+
   const currentPill = document.getElementById('updateCurrentVersionPill');
   const latestPill = document.getElementById('updateLatestVersionPill');
   const notesContent = document.getElementById('updateNotesContent');
@@ -14309,13 +14360,13 @@ function openAppUpdateModal() {
   const startBtn = document.getElementById('startUpdateBtn');
   const restartBtn = document.getElementById('restartUpdateBtn');
 
-  const curVer = (appLatestUpdateInfo && appLatestUpdateInfo.currentVersion) || CURRENT_APP_VERSION;
-  const latVer = (appLatestUpdateInfo && appLatestUpdateInfo.latestVersion) || curVer;
+  const curVer = appLatestUpdateInfo.currentVersion || CURRENT_APP_VERSION;
+  const latVer = appLatestUpdateInfo.latestVersion || curVer;
 
   if (currentPill) currentPill.textContent = `Current: v${curVer}`;
   if (latestPill) latestPill.textContent = `Latest: v${latVer}`;
   if (notesContent) {
-    notesContent.textContent = (appLatestUpdateInfo && appLatestUpdateInfo.releaseNotes) || 'Bug fixes, performance improvements, and real-time updates.';
+    notesContent.textContent = appLatestUpdateInfo.releaseNotes || 'Bug fixes, performance improvements, and real-time updates.';
   }
 
   if (progressWrap) progressWrap.classList.add('hidden');
@@ -14483,6 +14534,8 @@ async function renderUpdatesSettingsUI() {
 }
 
 function bindAppUpdateControls() {
+  hideUpdateIndicators();
+
   // 1. Top-Right Update Badges
   const topUpdateBtns = [
     document.getElementById('chatUpdateBtn'),

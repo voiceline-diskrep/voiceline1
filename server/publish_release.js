@@ -20,7 +20,7 @@ function getGitHubToken() {
 const GITHUB_TOKEN = getGitHubToken();
 const OWNER = 'voiceline-diskrep';
 const REPO = 'voiceline1';
-const TAG = 'v1.0.7';
+const TAG = 'v1.0.8';
 
 function apiRequest(options, postData) {
   return new Promise((resolve, reject) => {
@@ -133,7 +133,7 @@ async function main() {
       tag_name: TAG,
       target_commitish: 'main',
       name: `Voiceline ${TAG}`,
-      body: `### Voiceline ${TAG}\n\n- **Feedback Category Enforcement & Filter Overhaul**: Required category selector on feedback submission (Fun Option, QoL, Bugfix, "I prefer it this way"), enhanced category sorting & filter bar, and new "In Progress" status tracking.\n- **Deafen & Undeafen Behavior Fix**: Fixed voice state so undeafening no longer leaves you muted when you were unmuted prior to deafening. Unmuting while deafened also restores both listening and speaking immediately.\n- **Desktop Nitro Offer Close Button Fix**: Relocated the promotional banner dismiss/close button so it is no longer covered or intercepted by the native Windows Electron caption buttons strip. Added an inline "Dismiss" button next to "Claim Offer".\n- **Screenshare & Video Avatar Overlap Fix**: Hidden user profile avatars when video/screenshare streams are active so they never obstruct screen shares in voice channels.\n- **Rectangular Header Update Button**: Redesigned the update badge into a clean rectangular button with visible, unbroken version text.\n- **Increased File Upload Limits (10MB)**: Server icons, custom stickers, and profile pictures now support files up to 10MB (previously 2MB).\n- **Top-Right Notification Toasts**: All toast notifications now appear neatly at the top-right corner.\n\nDownload **Voiceline Setup 1.0.7.exe** to install, or **Voiceline 1.0.7.exe** for portable use.`,
+      body: `### Voiceline ${TAG}\n\n- **Window Movement & Draggable Titlebar**: Added a dedicated top window drag titlebar and header drag regions with \`-webkit-app-region: drag\` so the desktop window can be moved freely across monitors and screens.\n- **Top Controls Clearance (No More Overlapping Caption Buttons)**: All app headers, user profile capsules, search bars, and action buttons are now lowered cleanly below the Windows titlebar strip, completely preventing the minimize, maximize, and close buttons from overlapping the user capsule or action buttons.\n- **Fixed Auto-Update System & False Positive Badge**: Resolved a CSS specificity bug where the update button was stuck visible even when no update existed. Fixed the version detector so the update badge and modal ONLY appear when an actual newer release is published on GitHub, correctly displaying current and latest versions.\n\nDownload **Voiceline Setup 1.0.8.exe** to install, or **Voiceline 1.0.8.exe** for portable use.`,
       draft: false,
       prerelease: false
     }));

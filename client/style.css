@@ -72,6 +72,89 @@ body {
   overflow: hidden;
 }
 
+/* =======================================================
+   DESKTOP WINDOW TITLEBAR & WINDOW DRAGGING REGIONS
+   ======================================================= */
+.window-titlebar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  min-height: 32px;
+  width: 100%;
+  background-color: #1e1f22;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 9999;
+  -webkit-app-region: drag;
+  user-select: none;
+  padding: 0 145px 0 14px; /* Right padding clears native Windows caption buttons [—] [▢] [✕] */
+  box-sizing: border-box;
+}
+
+.window-titlebar-content {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+
+.window-titlebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #949ba4;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+}
+
+.window-titlebar-logo {
+  width: 15px;
+  height: 15px;
+  color: #5865f2;
+}
+
+/* Make headers draggable too for easy window movement */
+.chat-header,
+.friends-header,
+.dm-header,
+.voice-stage-header {
+  -webkit-app-region: drag;
+}
+
+/* Ensure ALL interactive controls inside draggable regions can be clicked and interacted with */
+button,
+input,
+textarea,
+select,
+a,
+label,
+.user-capsule,
+.user-capsule *,
+.top-header-btn,
+.top-feedback-btn,
+.friends-nav-btn,
+.server-icon,
+.server-item,
+.f-tab-btn,
+.chat-header-search-wrap,
+.chat-header-search-wrap *,
+.channel-info,
+.channel-info *,
+.friends-header-title,
+.dm-header-friend-info,
+.status-indicator,
+.modal-close-icon-btn,
+.promo-claim-btn,
+.promo-dismiss-btn,
+.promo-close-btn,
+.window-titlebar-brand {
+  -webkit-app-region: no-drag !important;
+}
+
 .app-wrapper {
   display: flex;
   width: 100%;
@@ -7096,6 +7179,10 @@ button,
     height: 36px;
   }
 
+  .window-titlebar {
+    display: none !important;
+  }
+
   /* Active Call Widget (Floating Dock) */
   .active-call-widget {
     bottom: 12px;
@@ -11279,9 +11366,9 @@ body.disable-urgent-flash .channel-message.red-mention-ping-active {
    DISCORD-STYLE TOP-RIGHT UPDATE BADGE & MODAL
    ==================================================== */
 .top-header-btn.top-update-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 7px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   width: auto !important;
   height: 30px !important;
   min-width: 0 !important;
@@ -11298,6 +11385,10 @@ body.disable-urgent-flash .channel-message.red-mention-ping-active {
   position: relative !important;
   overflow: visible !important;
   white-space: nowrap !important;
+}
+
+.top-header-btn.top-update-btn.hidden {
+  display: none !important;
 }
 
 .top-header-btn.top-update-btn:hover {

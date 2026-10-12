@@ -251,9 +251,9 @@
 
       <div class="update-modal-body">
         <div class="update-version-row">
-          <div class="update-version-pill current" id="updateCurrentVersionPill">Current: v1.0.0</div>
+          <div class="update-version-pill current" id="updateCurrentVersionPill">Current: v1.0.7</div>
           <span class="update-version-arrow">➔</span>
-          <div class="update-version-pill latest" id="updateLatestVersionPill">Latest: v1.0.1</div>
+          <div class="update-version-pill latest" id="updateLatestVersionPill">Latest: v1.0.8</div>
         </div>
 
         <div class="update-notes-box">
@@ -584,6 +584,18 @@
   </div>
 
   <div class="global-app-container" id="globalAppContainer">
+    <!-- Desktop Window Titlebar & Drag Region -->
+    <header class="window-titlebar" id="windowTitlebar">
+      <div class="window-titlebar-content">
+        <div class="window-titlebar-brand">
+          <svg viewBox="0 0 24 24" class="window-titlebar-logo" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+          </svg>
+          <span class="window-titlebar-title">Voiceline</span>
+        </div>
+      </div>
+    </header>
+
     <!-- Global Promotional Banner (Nitro Offer) -->
     <div class="global-promo-banner" id="globalPromoBanner">
       <div class="promo-content">
@@ -3142,7 +3154,7 @@
               <div class="settings-update-hero-meta">
                 <div class="settings-update-title-row">
                   <h3 class="settings-card-title">Voiceline Desktop</h3>
-                  <span class="settings-version-pill" id="settingsCurrentVersionDisplay">v1.0.7</span>
+                  <span class="settings-version-pill" id="settingsCurrentVersionDisplay">v1.0.8</span>
                 </div>
                 <p class="settings-card-desc">Automatic updates are synchronized with GitHub releases (<code class="settings-code-repo">voiceline-diskrep/voiceline1</code>).</p>
               </div>
