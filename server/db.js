@@ -419,6 +419,7 @@ try {
 } catch {}
 
 // Stage 3d.6: User Status & Custom Status
+try { db.exec(`ALTER TABLE feedback ADD COLUMN category TEXT DEFAULT 'qol';`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'online';`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN custom_status_text TEXT DEFAULT '';`); } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN custom_status_emoji TEXT DEFAULT '';`); } catch {}
@@ -2403,12 +2404,12 @@ function getStorageStats(uploadsDir) {
 // ==========================================
 
 const insertFeedbackStmt = db.prepare(`
-  INSERT INTO feedback (user_id, author_name, author_username, author_avatar_url, content, status, dev_response, dev_response_by, created_at, updated_at, is_deleted)
-  VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, 0)
+  INSERT INTO feedback (user_id, author_name, author_username, author_avatar_url, content, category, status, dev_response, dev_response_by, created_at, updated_at, is_deleted)
+  VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, 0)
 `);
 
 const getFeedbackByIdStmt = db.prepare(`
-  SELECT f.id, f.user_id AS userId, f.content, f.status, f.dev_response AS devResponse,
+  SELECT f.id, f.user_id AS userId, f.content, COALESCE(f.category, 'qol') AS category, f.status, f.dev_response AS devResponse,
          f.dev_response_by AS devResponseBy, f.created_at AS createdAt, f.updated_at AS updatedAt,
          COALESCE(u.display_name, f.author_name) AS authorName,
          COALESCE(u.username, f.author_username) AS authorUsername,
@@ -2432,9 +2433,11 @@ function getFeedbackById(id) {
   };
 }
 
-function createFeedback({ userId, authorName, authorUsername, authorAvatarUrl, content }) {
+function createFeedback({ userId, authorName, authorUsername, authorAvatarUrl, content, category = 'qol' }) {
   const cleanContent = String(content || '').trim().slice(0, 2000);
   if (!cleanContent) throw new Error('Feedback content cannot be empty.');
+  const validCategories = ['fun_option', 'qol', 'bugfix', 'prefer_this_way'];
+  const cleanCategory = validCategories.includes(category) ? category : 'qol';
   const now = new Date().toISOString();
   const res = insertFeedbackStmt.run(
     Number(userId),
@@ -2442,6 +2445,7 @@ function createFeedback({ userId, authorName, authorUsername, authorAvatarUrl, c
     String(authorUsername || 'user').trim().slice(0, 32),
     authorAvatarUrl || null,
     cleanContent,
+    cleanCategory,
     now,
     now
   );
@@ -2449,7 +2453,7 @@ function createFeedback({ userId, authorName, authorUsername, authorAvatarUrl, c
 }
 
 const getAllFeedbackStmt = db.prepare(`
-  SELECT f.id, f.user_id AS userId, f.content, f.status, f.dev_response AS devResponse,
+  SELECT f.id, f.user_id AS userId, f.content, COALESCE(f.category, 'qol') AS category, f.status, f.dev_response AS devResponse,
          f.dev_response_by AS devResponseBy, f.created_at AS createdAt, f.updated_at AS updatedAt,
          COALESCE(u.display_name, f.author_name) AS authorName,
          COALESCE(u.username, f.author_username) AS authorUsername,
@@ -2480,7 +2484,7 @@ const updateFeedbackStatusStmt = db.prepare(`
 `);
 
 function updateFeedbackStatus({ feedbackId, status, devResponse = null, devUserId = null }) {
-  const validStatuses = ['accepted', 'considering', 'denied', 'pending', 'accepted_already_exists', 'already_exists'];
+  const validStatuses = ['accepted', 'in_progress', 'considering', 'denied', 'pending', 'accepted_already_exists', 'already_exists'];
   const cleanStatus = validStatuses.includes(status) ? status : 'pending';
   const cleanResponse = (devResponse !== undefined && devResponse !== null && String(devResponse).trim().length > 0)
     ? String(devResponse).trim().slice(0, 1000)

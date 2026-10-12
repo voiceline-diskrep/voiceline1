@@ -459,7 +459,7 @@
             <input type="file" id="profilePfpInput" accept="image/png, image/jpeg, image/webp, image/gif" class="hidden" />
             <button type="button" class="secondary-btn btn-sm" id="changeAvatarBtn">Upload Picture</button>
             <button type="button" class="secondary-btn btn-sm btn-danger-text hidden" id="removeAvatarBtn">Remove</button>
-            <span class="upload-hint">PNG, JPG, WebP or GIF (Max 2MB)</span>
+            <span class="upload-hint">PNG, JPG, WebP or GIF (Max 10MB)</span>
           </div>
         </div>
 
@@ -590,6 +590,7 @@
         <span class="promo-pill">Nitro</span>
         <span class="promo-text">New Nitro Reward! Get 20% off your next 6 months of Nitro Basic or Nitro with code <strong>NITRO2026</strong> at checkout.</span>
         <button type="button" class="promo-claim-btn" id="promoClaimBtn">Claim Offer</button>
+        <button type="button" class="promo-dismiss-btn" id="promoDismissBtn">Dismiss</button>
       </div>
       <button type="button" class="promo-close-btn" id="promoCloseBtn" title="Dismiss banner" aria-label="Dismiss banner">&times;</button>
     </div>
@@ -1766,6 +1767,41 @@
       <div class="feedback-composer-card">
         <div class="feedback-composer-label">SUBMIT YOUR FEEDBACK</div>
         <form id="feedbackForm" autocomplete="off">
+          <!-- Required Category Selection -->
+          <div class="feedback-category-group">
+            <label class="feedback-field-label">CATEGORY <span class="label-required">* REQUIRED</span></label>
+            <div class="feedback-category-selector" id="feedbackCategorySelector">
+              <label class="category-radio-card">
+                <input type="radio" name="feedbackCategory" value="fun_option" required />
+                <span class="category-card-inner">
+                  <span class="category-card-icon">🎉</span>
+                  <span class="category-card-name">Fun Option</span>
+                </span>
+              </label>
+              <label class="category-radio-card">
+                <input type="radio" name="feedbackCategory" value="qol" required />
+                <span class="category-card-inner">
+                  <span class="category-card-icon">⚡</span>
+                  <span class="category-card-name">QoL</span>
+                </span>
+              </label>
+              <label class="category-radio-card">
+                <input type="radio" name="feedbackCategory" value="bugfix" required />
+                <span class="category-card-inner">
+                  <span class="category-card-icon">🐛</span>
+                  <span class="category-card-name">Bugfix</span>
+                </span>
+              </label>
+              <label class="category-radio-card">
+                <input type="radio" name="feedbackCategory" value="prefer_this_way" required />
+                <span class="category-card-inner">
+                  <span class="category-card-icon">💭</span>
+                  <span class="category-card-name">"I prefer it this way"</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
           <textarea 
             id="feedbackContentInput" 
             class="feedback-textarea" 
@@ -1788,11 +1824,12 @@
         </div>
       </div>
 
-      <!-- Filter Bar -->
+      <!-- Filter Bar (Status) -->
       <div class="feedback-filter-bar">
         <div class="feedback-filter-chips">
           <button type="button" class="feedback-filter-chip active" data-filter="all">All (<span id="feedbackCountAll">0</span>)</button>
           <button type="button" class="feedback-filter-chip" data-filter="pending">🟡 Pending (<span id="feedbackCountPending">0</span>)</button>
+          <button type="button" class="feedback-filter-chip" data-filter="in_progress">⚙️ In Progress (<span id="feedbackCountInProgress">0</span>)</button>
           <button type="button" class="feedback-filter-chip" data-filter="considering">🟠 Considering (<span id="feedbackCountConsidering">0</span>)</button>
           <button type="button" class="feedback-filter-chip" data-filter="accepted">🟢 Accepted (<span id="feedbackCountAccepted">0</span>)</button>
           <button type="button" class="feedback-filter-chip" data-filter="denied">🔴 Denied (<span id="feedbackCountDenied">0</span>)</button>
@@ -1804,6 +1841,18 @@
             <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
           </svg>
         </button>
+      </div>
+
+      <!-- Category Filter / Sort Bar -->
+      <div class="feedback-category-bar">
+        <span class="category-bar-label">Category:</span>
+        <div class="feedback-category-chips">
+          <button type="button" class="feedback-category-chip active" data-category="all">All Categories (<span id="feedbackCatCountAll">0</span>)</button>
+          <button type="button" class="feedback-category-chip" data-category="fun_option">🎉 Fun Option (<span id="feedbackCatCountFunOption">0</span>)</button>
+          <button type="button" class="feedback-category-chip" data-category="qol">⚡ QoL (<span id="feedbackCatCountQol">0</span>)</button>
+          <button type="button" class="feedback-category-chip" data-category="bugfix">🐛 Bugfix (<span id="feedbackCatCountBugfix">0</span>)</button>
+          <button type="button" class="feedback-category-chip" data-category="prefer_this_way">💭 "I prefer it this way" (<span id="feedbackCatCountPreferThisWay">0</span>)</button>
+        </div>
       </div>
 
       <!-- Feedback List Scroll Container -->
@@ -3093,7 +3142,7 @@
               <div class="settings-update-hero-meta">
                 <div class="settings-update-title-row">
                   <h3 class="settings-card-title">Voiceline Desktop</h3>
-                  <span class="settings-version-pill" id="settingsCurrentVersionDisplay">v1.0.6</span>
+                  <span class="settings-version-pill" id="settingsCurrentVersionDisplay">v1.0.7</span>
                 </div>
                 <p class="settings-card-desc">Automatic updates are synchronized with GitHub releases (<code class="settings-code-repo">voiceline-diskrep/voiceline1</code>).</p>
               </div>
@@ -3424,7 +3473,7 @@
                   <input type="file" id="serverIconFileInput" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" />
                   <button type="button" class="secondary-btn btn-sm mt-10" id="serverIconUploadBtn">Upload Icon</button>
                   <button type="button" class="text-danger-btn btn-sm mt-5 hidden" id="serverIconRemoveBtn">Remove Icon</button>
-                  <span class="upload-hint mt-5">Minimum size: 128x128. Max: 2MB.</span>
+                  <span class="upload-hint mt-5">Minimum size: 128x128. Max: 10MB.</span>
                 </div>
               </div>
 

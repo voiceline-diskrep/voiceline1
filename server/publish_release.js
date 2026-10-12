@@ -20,7 +20,7 @@ function getGitHubToken() {
 const GITHUB_TOKEN = getGitHubToken();
 const OWNER = 'voiceline-diskrep';
 const REPO = 'voiceline1';
-const TAG = 'v1.0.6';
+const TAG = 'v1.0.7';
 
 function apiRequest(options, postData) {
   return new Promise((resolve, reject) => {
@@ -133,7 +133,7 @@ async function main() {
       tag_name: TAG,
       target_commitish: 'main',
       name: `Voiceline ${TAG}`,
-      body: `### Voiceline ${TAG}\n\n- **Dedicated Server Offline & Connection Screen**: The app no longer traps users on the login screen with offline errors when the server tunnel changes. Instead, a dedicated connection recovery screen is presented immediately.\n- **Check Connection Again (Checks GitHub)**: One-click button that queries GitHub for the newest live Cloudflare tunnel link, verifies connection, and connects seamlessly without requiring re-downloading or reinstalling.\n- **Emergency Manual Link Override**: Instant paste input allowing users to enter a direct server URL (e.g. from Discord or host) if GitHub lookup is cached or delayed.\n- **Screenshot Clipboard Paste**: Press \`Ctrl + V\` anywhere to paste snippets and screenshots directly into channels and DMs.\n- **Leaving Sound Effects**: Web Audio departure chimes on call hangup and member departure.\n\nDownload **Voiceline Setup 1.0.6.exe** to install, or **Voiceline 1.0.6.exe** for portable use.`,
+      body: `### Voiceline ${TAG}\n\n- **Feedback Category Enforcement & Filter Overhaul**: Required category selector on feedback submission (Fun Option, QoL, Bugfix, "I prefer it this way"), enhanced category sorting & filter bar, and new "In Progress" status tracking.\n- **Deafen & Undeafen Behavior Fix**: Fixed voice state so undeafening no longer leaves you muted when you were unmuted prior to deafening. Unmuting while deafened also restores both listening and speaking immediately.\n- **Desktop Nitro Offer Close Button Fix**: Relocated the promotional banner dismiss/close button so it is no longer covered or intercepted by the native Windows Electron caption buttons strip. Added an inline "Dismiss" button next to "Claim Offer".\n- **Screenshare & Video Avatar Overlap Fix**: Hidden user profile avatars when video/screenshare streams are active so they never obstruct screen shares in voice channels.\n- **Rectangular Header Update Button**: Redesigned the update badge into a clean rectangular button with visible, unbroken version text.\n- **Increased File Upload Limits (10MB)**: Server icons, custom stickers, and profile pictures now support files up to 10MB (previously 2MB).\n- **Top-Right Notification Toasts**: All toast notifications now appear neatly at the top-right corner.\n\nDownload **Voiceline Setup 1.0.7.exe** to install, or **Voiceline 1.0.7.exe** for portable use.`,
       draft: false,
       prerelease: false
     }));

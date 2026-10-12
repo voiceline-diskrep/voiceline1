@@ -1194,8 +1194,8 @@ profilePfpInput.addEventListener('change', (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
 
-  if (file.size > 2 * 1024 * 1024) {
-    myProfileError.textContent = 'Image file too large. Maximum size is 2MB.';
+  if (file.size > 10 * 1024 * 1024) {
+    myProfileError.textContent = 'Image file too large. Maximum size is 10MB.';
     profilePfpInput.value = '';
     return;
   }
@@ -5615,6 +5615,7 @@ const serverVoiceState = {
   remoteAudioElements: new Map(), // targetUserId -> HTMLAudioElement
   isMuted: false,
   isDeafened: false,
+  wasMutedBeforeDeafen: false,
   isVideo: false,
   isScreenShare: false,
   audioContext: null,
@@ -6069,6 +6070,7 @@ function leaveServerVoiceChannel(shouldSend = true) {
   serverVoiceState.participants = [];
   serverVoiceState.isMuted = false;
   serverVoiceState.isDeafened = false;
+  serverVoiceState.wasMutedBeforeDeafen = false;
   serverVoiceState.isVideo = false;
   serverVoiceState.isScreenShare = false;
   serverVoiceState.isSpeaking = false;
@@ -6277,6 +6279,23 @@ function renderVoiceStageGrid() {
 
 function toggleServerVoiceMute() {
   if (!serverVoiceState.localStream) return;
+
+  // If user is currently deafened and clicks mute, undeafen and unmute them
+  if (serverVoiceState.isDeafened) {
+    serverVoiceState.isDeafened = false;
+    serverVoiceState.isMuted = false;
+    serverVoiceState.wasMutedBeforeDeafen = false;
+    serverVoiceState.localStream.getAudioTracks().forEach(t => {
+      t.enabled = true;
+    });
+    serverVoiceState.remoteAudioElements.forEach(el => {
+      el.volume = 1;
+    });
+    sendServerVoiceMediaState();
+    updateServerVoiceControlsUI();
+    return;
+  }
+
   serverVoiceState.isMuted = !serverVoiceState.isMuted;
   serverVoiceState.localStream.getAudioTracks().forEach(t => {
     t.enabled = !serverVoiceState.isMuted;
@@ -6296,10 +6315,27 @@ function toggleServerVoiceMute() {
 function toggleServerVoiceDeafen() {
   serverVoiceState.isDeafened = !serverVoiceState.isDeafened;
   if (serverVoiceState.isDeafened) {
+    // Record if user was already muted before deafening
+    serverVoiceState.wasMutedBeforeDeafen = !!serverVoiceState.isMuted;
     serverVoiceState.isMuted = true;
     if (serverVoiceState.localStream) {
       serverVoiceState.localStream.getAudioTracks().forEach(t => t.enabled = false);
     }
+    if (serverVoiceState.isSpeaking) {
+      serverVoiceState.isSpeaking = false;
+      if (currentUser) serverVoiceState.speakingUsers.delete(currentUser.id);
+      sendVoiceSpeaking(false);
+      updateSpeakingUI(currentUser?.id, false);
+    }
+  } else {
+    // Undeafening: restore mute state (unmute if they were not muted prior to deafening)
+    if (!serverVoiceState.wasMutedBeforeDeafen) {
+      serverVoiceState.isMuted = false;
+      if (serverVoiceState.localStream) {
+        serverVoiceState.localStream.getAudioTracks().forEach(t => t.enabled = true);
+      }
+    }
+    serverVoiceState.wasMutedBeforeDeafen = false;
   }
 
   // Mute or unmute all remote audio elements
@@ -6498,6 +6534,7 @@ if (voiceStageToggleChatBtn) {
 // ==========================================
 const globalPromoBanner = document.getElementById('globalPromoBanner');
 const promoClaimBtn = document.getElementById('promoClaimBtn');
+const promoDismissBtn = document.getElementById('promoDismissBtn');
 const promoCloseBtn = document.getElementById('promoCloseBtn');
 const easterEggOfferModalOverlay = document.getElementById('easterEggOfferModalOverlay');
 const closeEasterEggBtn = document.getElementById('closeEasterEggBtn');
@@ -6518,12 +6555,18 @@ function initPromoBanner() {
     document.documentElement.classList.add('promo-dismissed');
   }
 
+  const dismissBanner = () => {
+    localStorage.setItem('voiceline_promo_banner_dismissed', 'true');
+    document.documentElement.classList.add('promo-dismissed');
+    globalPromoBanner.classList.add('dismissed');
+  };
+
   if (promoCloseBtn) {
-    promoCloseBtn.addEventListener('click', () => {
-      localStorage.setItem('voiceline_promo_banner_dismissed', 'true');
-      document.documentElement.classList.add('promo-dismissed');
-      globalPromoBanner.classList.add('dismissed');
-    });
+    promoCloseBtn.addEventListener('click', dismissBanner);
+  }
+
+  if (promoDismissBtn) {
+    promoDismissBtn.addEventListener('click', dismissBanner);
   }
 
   if (promoClaimBtn) {
@@ -6562,15 +6605,23 @@ const feedbackLoadingState = document.getElementById('feedbackLoadingState');
 
 const feedbackCountAll = document.getElementById('feedbackCountAll');
 const feedbackCountPending = document.getElementById('feedbackCountPending');
+const feedbackCountInProgress = document.getElementById('feedbackCountInProgress');
 const feedbackCountConsidering = document.getElementById('feedbackCountConsidering');
 const feedbackCountAccepted = document.getElementById('feedbackCountAccepted');
 const feedbackCountDenied = document.getElementById('feedbackCountDenied');
 const feedbackCountAcceptedAlreadyExists = document.getElementById('feedbackCountAcceptedAlreadyExists');
 const feedbackCountAlreadyExists = document.getElementById('feedbackCountAlreadyExists');
 
+const feedbackCatCountAll = document.getElementById('feedbackCatCountAll');
+const feedbackCatCountFunOption = document.getElementById('feedbackCatCountFunOption');
+const feedbackCatCountQol = document.getElementById('feedbackCatCountQol');
+const feedbackCatCountBugfix = document.getElementById('feedbackCatCountBugfix');
+const feedbackCatCountPreferThisWay = document.getElementById('feedbackCatCountPreferThisWay');
+
 let communityFeedbackList = [];
 let userHasSubmittedFeedback = false;
 let currentFeedbackFilter = 'all';
+let currentFeedbackCategoryFilter = 'all';
 let isSubmittingFeedback = false;
 
 function formatRelativeTime(isoString) {
@@ -6651,23 +6702,42 @@ function updateFilterCounts() {
   const counts = {
     all: communityFeedbackList.length,
     pending: 0,
+    in_progress: 0,
     considering: 0,
     accepted: 0,
     denied: 0,
     accepted_already_exists: 0,
     already_exists: 0
   };
+  const catCounts = {
+    all: communityFeedbackList.length,
+    fun_option: 0,
+    qol: 0,
+    bugfix: 0,
+    prefer_this_way: 0
+  };
+
   communityFeedbackList.forEach(item => {
     const st = (item.status || 'pending').toLowerCase();
     if (counts[st] !== undefined) counts[st]++;
+    const cat = (item.category || 'qol').toLowerCase();
+    if (catCounts[cat] !== undefined) catCounts[cat]++;
   });
+
   if (feedbackCountAll) feedbackCountAll.textContent = counts.all;
   if (feedbackCountPending) feedbackCountPending.textContent = counts.pending;
+  if (feedbackCountInProgress) feedbackCountInProgress.textContent = counts.in_progress;
   if (feedbackCountConsidering) feedbackCountConsidering.textContent = counts.considering;
   if (feedbackCountAccepted) feedbackCountAccepted.textContent = counts.accepted;
   if (feedbackCountDenied) feedbackCountDenied.textContent = counts.denied;
   if (feedbackCountAcceptedAlreadyExists) feedbackCountAcceptedAlreadyExists.textContent = counts.accepted_already_exists;
   if (feedbackCountAlreadyExists) feedbackCountAlreadyExists.textContent = counts.already_exists;
+
+  if (feedbackCatCountAll) feedbackCatCountAll.textContent = catCounts.all;
+  if (feedbackCatCountFunOption) feedbackCatCountFunOption.textContent = catCounts.fun_option;
+  if (feedbackCatCountQol) feedbackCatCountQol.textContent = catCounts.qol;
+  if (feedbackCatCountBugfix) feedbackCatCountBugfix.textContent = catCounts.bugfix;
+  if (feedbackCatCountPreferThisWay) feedbackCatCountPreferThisWay.textContent = catCounts.prefer_this_way;
 }
 
 function renderFeedbackList() {
@@ -6678,7 +6748,10 @@ function renderFeedbackList() {
 
   let filtered = communityFeedbackList;
   if (currentFeedbackFilter !== 'all') {
-    filtered = communityFeedbackList.filter(f => (f.status || 'pending').toLowerCase() === currentFeedbackFilter);
+    filtered = filtered.filter(f => (f.status || 'pending').toLowerCase() === currentFeedbackFilter);
+  }
+  if (currentFeedbackCategoryFilter !== 'all') {
+    filtered = filtered.filter(f => (f.category || 'qol').toLowerCase() === currentFeedbackCategoryFilter);
   }
 
   if (filtered.length === 0) {
@@ -6700,6 +6773,7 @@ function renderFeedbackList() {
     const st = (f.status || 'pending').toLowerCase();
     const stLabels = {
       pending: '🟡 Pending',
+      in_progress: '⚙️ In Progress',
       considering: '🟠 Considering',
       accepted: '🟢 Accepted',
       denied: '🔴 Denied',
@@ -6707,6 +6781,16 @@ function renderFeedbackList() {
       already_exists: '💡 Already Exists'
     };
     const stBadgeText = stLabels[st] || '🟡 Pending';
+
+    const cat = (f.category || 'qol').toLowerCase();
+    const catLabels = {
+      fun_option: '🎉 Fun Option',
+      qol: '⚡ QoL',
+      bugfix: '🐛 Bugfix',
+      prefer_this_way: '💭 "I prefer it this way"'
+    };
+    const catBadgeText = catLabels[cat] || '⚡ QoL';
+
     const relativeTime = formatRelativeTime(f.createdAt);
 
     const avatarHtml = createAvatarHtml({
@@ -6731,6 +6815,7 @@ function renderFeedbackList() {
         <span class="dev-action-label">Dev Controls:</span>
         <select class="feedback-status-select" data-id="${f.id}">
           <option value="pending" ${st === 'pending' ? 'selected' : ''}>🟡 Pending</option>
+          <option value="in_progress" ${st === 'in_progress' ? 'selected' : ''}>⚙️ In Progress</option>
           <option value="considering" ${st === 'considering' ? 'selected' : ''}>🟠 Considering</option>
           <option value="accepted" ${st === 'accepted' ? 'selected' : ''}>🟢 Accepted</option>
           <option value="denied" ${st === 'denied' ? 'selected' : ''}>🔴 Denied</option>
@@ -6766,7 +6851,10 @@ function renderFeedbackList() {
             <span class="feedback-timestamp">${escapeHtml(relativeTime)}</span>
           </div>
         </div>
-        <div class="status-pill status-${st}">${stBadgeText}</div>
+        <div class="feedback-card-badges">
+          <div class="cat-pill cat-${escapeHtml(cat)}">${escapeHtml(catBadgeText)}</div>
+          <div class="status-pill status-${st}">${stBadgeText}</div>
+        </div>
       </div>
       <p class="feedback-card-text">${escapeHtml(f.content)}</p>
       ${devResponseHtml}
@@ -6898,6 +6986,16 @@ async function handleFeedbackSubmit(e) {
     return;
   }
 
+  const selectedCatInput = document.querySelector('input[name="feedbackCategory"]:checked');
+  const category = selectedCatInput ? selectedCatInput.value : '';
+  if (!category) {
+    if (feedbackSubmitError) {
+      feedbackSubmitError.textContent = 'Please choose a category before submitting.';
+      feedbackSubmitError.classList.remove('hidden');
+    }
+    return;
+  }
+
   isSubmittingFeedback = true;
   if (submitFeedbackBtn) submitFeedbackBtn.disabled = true;
   if (feedbackSubmitSpinner) feedbackSubmitSpinner.classList.remove('hidden');
@@ -6911,7 +7009,7 @@ async function handleFeedbackSubmit(e) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ content })
+      body: JSON.stringify({ content, category })
     });
 
     const data = await res.json();
@@ -6926,6 +7024,11 @@ async function handleFeedbackSubmit(e) {
       if (feedbackCharCount) {
         feedbackCharCount.textContent = '0';
       }
+
+      // Reset category selection
+      document.querySelectorAll('input[name="feedbackCategory"]').forEach(r => {
+        r.checked = false;
+      });
 
       if (feedbackSubmitSuccess) {
         feedbackSubmitSuccess.classList.remove('hidden');
@@ -7022,17 +7125,34 @@ function bindFeedbackForumControls() {
     });
   }
 
+  // Radio cards change: clear any error
+  document.querySelectorAll('input[name="feedbackCategory"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (feedbackSubmitError) feedbackSubmitError.classList.add('hidden');
+    });
+  });
+
   // Form submit
   if (feedbackForm) {
     feedbackForm.addEventListener('submit', handleFeedbackSubmit);
   }
 
-  // Filter chips
+  // Status Filter chips
   document.querySelectorAll('.feedback-filter-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       document.querySelectorAll('.feedback-filter-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       currentFeedbackFilter = chip.getAttribute('data-filter') || 'all';
+      renderFeedbackList();
+    });
+  });
+
+  // Category Filter chips
+  document.querySelectorAll('.feedback-category-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.feedback-category-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      currentFeedbackCategoryFilter = chip.getAttribute('data-category') || 'all';
       renderFeedbackList();
     });
   });
@@ -13794,8 +13914,8 @@ function bindServerSettingsControls() {
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      if (file.size > 2 * 1024 * 1024) {
-        showToast({ icon: '⚠️', title: 'File Too Large', body: 'Maximum server icon size is 2MB.' });
+      if (file.size > 10 * 1024 * 1024) {
+        showToast({ icon: '⚠️', title: 'File Too Large', body: 'Maximum server icon size is 10MB.' });
         return;
       }
       const reader = new FileReader();

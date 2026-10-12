@@ -753,7 +753,7 @@ const server = http.createServer(async (req, res) => {
           else return sendJson(res, 400, { error: 'Invalid icon format. Supported: PNG, JPEG, WebP, GIF.' });
 
           const buffer = Buffer.from(rawData, 'base64');
-          if (buffer.length > 2 * 1024 * 1024) return sendJson(res, 400, { error: 'Icon file too large. Maximum size is 2 MB.' });
+          if (buffer.length > 10 * 1024 * 1024) return sendJson(res, 400, { error: 'Icon file too large. Maximum size is 10 MB.' });
 
           const newFilename = `server_icon_${serverId}_${Date.now()}.${ext}`;
           const newFilePath = path.join(AVATARS_DIR, newFilename);
@@ -1659,8 +1659,8 @@ const server = http.createServer(async (req, res) => {
           }
 
           const buffer = Buffer.from(rawData, 'base64');
-          if (buffer.length > 2 * 1024 * 1024) {
-            return sendJson(res, 400, { error: 'Image file too large. Maximum size is 2 MB.' });
+          if (buffer.length > 10 * 1024 * 1024) {
+            return sendJson(res, 400, { error: 'Image file too large. Maximum size is 10 MB.' });
           }
 
           if (user.avatarUrl && user.avatarUrl.startsWith('/uploads/avatars/')) {
@@ -2034,8 +2034,8 @@ const server = http.createServer(async (req, res) => {
             else return sendJson(res, 400, { error: 'Unsupported image format. Allowed: SVG, PNG, WebP, GIF, JPEG' });
 
             const buffer = Buffer.from(rawData, 'base64');
-            if (buffer.length > 2 * 1024 * 1024) {
-              return sendJson(res, 400, { error: 'Sticker file size exceeds 2 MB limit.' });
+            if (buffer.length > 10 * 1024 * 1024) {
+              return sendJson(res, 400, { error: 'Sticker file size exceeds 10 MB limit.' });
             }
 
             const filename = `sticker_${targetServerId || 'global'}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
@@ -2120,7 +2120,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 401, { error: 'You must be logged in to submit feedback.' });
         }
 
-        const { content } = await readJsonBody(req);
+        const { content, category } = await readJsonBody(req);
         const cleanContent = String(content || '').trim();
         if (!cleanContent) {
           return sendJson(res, 400, { error: 'Feedback message cannot be empty.' });
@@ -2129,13 +2129,19 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: 'Feedback message must be 2000 characters or fewer.' });
         }
 
+        const validCategories = ['fun_option', 'qol', 'bugfix', 'prefer_this_way'];
+        if (!category || !validCategories.includes(category)) {
+          return sendJson(res, 400, { error: 'Please choose a category: Fun Option, QoL, Bugfix, or "I prefer it this way".' });
+        }
+
         try {
           const newFeedback = db.createFeedback({
             userId: user.id,
             authorName: user.displayName,
             authorUsername: user.username,
             authorAvatarUrl: user.avatarUrl,
-            content: cleanContent
+            content: cleanContent,
+            category
           });
 
           broadcastAll({
@@ -2188,6 +2194,7 @@ const server = http.createServer(async (req, res) => {
           if (updatedFeedback && updatedFeedback.userId && updatedFeedback.userId !== user.id) {
             const statusLabels = {
               accepted: 'Accepted 🎉',
+              in_progress: 'In Progress ⚙️',
               considering: 'Considering 🤔',
               denied: 'Closed / Denied ❌',
               accepted_already_exists: 'Already Exists ✨',
